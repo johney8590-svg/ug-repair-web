@@ -1,0 +1,477 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
+<title>UG 門市修繕進度系統</title>
+<style>
+  :root{
+    --green:#2D5016; --green2:#3A6B20; --leaf:#8DB87A;
+    --bg:#F8F5F0; --ink:#2C2C2C; --gray:#6B6B6B; --line:#E8E8E8;
+    --ok:#28A745; --warn:#FFC107; --bad:#DC3545; --card:#FFFFFF;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font-family:'Noto Sans TC','微軟正黑體','PingFang TC',sans-serif;font-size:15px;line-height:1.6}
+  header{background:var(--green);color:#fff;padding:14px 18px;display:flex;align-items:center;gap:10px;position:sticky;top:0;z-index:20}
+  header .logo{width:26px;height:26px;border:2px solid #fff;border-radius:6px;display:grid;place-items:center;font-weight:700;font-size:13px}
+  header h1{font-size:17px;font-weight:600;margin:0}
+  header .ver{margin-left:auto;font-size:12px;opacity:.8}
+  nav{display:flex;gap:4px;background:#fff;border-bottom:1px solid var(--line);padding:0 8px;overflow-x:auto;position:sticky;top:54px;z-index:19}
+  nav button{flex:0 0 auto;background:none;border:none;padding:12px 14px;font-size:14px;color:var(--gray);cursor:pointer;border-bottom:2px solid transparent}
+  nav button.active{color:var(--green);border-bottom-color:var(--green);font-weight:600}
+  nav button.admin-only{display:none}
+  main{max-width:760px;margin:0 auto;padding:18px 16px 80px}
+  .page{display:none}.page.active{display:block}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:6px;padding:16px 18px;margin-bottom:14px}
+  h2{font-size:18px;font-weight:600;margin:0 0 14px}
+  label{display:block;font-size:13px;color:var(--gray);margin:12px 0 5px}
+  label.req::after{content:" *";color:var(--bad)}
+  input,select,textarea{width:100%;padding:10px 12px;border:1px solid var(--line);border-radius:4px;font-size:15px;font-family:inherit;background:#fff;color:var(--ink)}
+  textarea{min-height:84px;resize:vertical}
+  .hint{font-size:12px;color:var(--gray);margin-top:4px}
+  .btn{background:var(--green);color:#fff;border:none;border-radius:4px;padding:10px 18px;font-weight:600;font-size:14px;cursor:pointer}
+  .btn:active{opacity:.85}
+  .btn.sec{background:transparent;border:1px solid var(--green);color:var(--green)}
+  .btn.sm{padding:6px 12px;font-size:13px}
+  .btn.gray{background:#fff;border:1px solid var(--line);color:var(--gray)}
+  .row{display:flex;gap:10px;flex-wrap:wrap}
+  .row>*{flex:1;min-width:140px}
+  .badge{display:inline-block;padding:2px 10px;border-radius:999px;font-size:12px;font-weight:600;white-space:nowrap}
+  .s0{background:#EFEFEF;color:#555}
+  .s1{background:#FFF4D6;color:#9a7400}
+  .s2{background:#FBE2E4;color:#b21f2d}
+  .s3{background:#E3F4E8;color:#1e7a37}
+  .case{border:1px solid var(--line);border-radius:6px;padding:12px 14px;margin-bottom:10px;background:#fff;cursor:pointer}
+  .case:hover{border-color:var(--leaf)}
+  .case .top{display:flex;justify-content:space-between;align-items:center;gap:8px}
+  .case .store{font-weight:600}
+  .case .meta{font-size:13px;color:var(--gray);margin-top:4px}
+  .case .desc{margin-top:6px;font-size:14px}
+  .filters{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px}
+  .filters select,.filters input{flex:1;min-width:120px}
+  .thumb{display:inline-block;width:64px;height:64px;object-fit:cover;border-radius:4px;border:1px solid var(--line);margin:4px 4px 0 0}
+  .modal{position:fixed;inset:0;background:rgba(0,0,0,.4);display:none;align-items:flex-start;justify-content:center;z-index:50;overflow:auto;padding:24px 12px}
+  .modal.open{display:flex}
+  .modal .box{background:#fff;border-radius:8px;max-width:560px;width:100%;padding:20px}
+  .modal h3{margin:0 0 4px;font-size:17px}
+  .hist{font-size:13px;color:var(--gray);border-left:2px solid var(--line);padding-left:10px;margin-top:4px}
+  .hist div{margin-bottom:4px}
+  .toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:var(--ink);color:#fff;padding:10px 18px;border-radius:6px;font-size:14px;z-index:99;opacity:0;transition:.25s;pointer-events:none}
+  .toast.show{opacity:1}
+  .empty{text-align:center;color:var(--gray);padding:30px 10px}
+  .chip{display:inline-flex;align-items:center;gap:6px;background:#F0F0F0;border-radius:999px;padding:4px 10px;font-size:13px;margin:0 6px 6px 0}
+  .chip b{font-weight:600}
+  .kv{display:flex;justify-content:space-between;border-bottom:1px solid #F0F0F0;padding:6px 0;font-size:14px}
+  .kv span:first-child{color:var(--gray)}
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  .small{font-size:12px;color:var(--gray)}
+</style>
+</head>
+<body>
+<header>
+  <div class="logo">UG</div>
+  <h1>門市修繕進度系統</h1>
+  <span class="ver" id="ver"></span>
+</header>
+
+<nav>
+  <button data-tab="apply" class="active">修繕登記</button>
+  <button data-tab="mine">我的案件</button>
+  <button data-tab="admin" class="admin-only">案件管理</button>
+  <button data-tab="setting" class="admin-only">設定</button>
+  <button data-tab="line" class="admin-only">LINE 通知</button>
+</nav>
+
+<main>
+  <!-- 修繕登記 -->
+  <section class="page active" id="page-apply">
+    <div class="card">
+      <h2>修繕登記</h2>
+      <label class="req">門市</label>
+      <select id="f-store"></select>
+      <div class="hint" id="f-supervisor">負責督導：—</div>
+
+      <div class="row">
+        <div><label class="req">設備</label><select id="f-equip"></select></div>
+        <div><label>發生日</label><input type="date" id="f-date" /></div>
+      </div>
+
+      <label class="req">問題描述</label>
+      <textarea id="f-desc" placeholder="請描述故障狀況，例：製二冰槽蓋子滾輪卡住無法開關"></textarea>
+
+      <label>相關單位（門市可先建議，後勤可再調整）</label>
+      <select id="f-unit"></select>
+
+      <label>照片（最多 5 張，選填）</label>
+      <input type="file" id="f-photos" accept="image/*" multiple />
+      <div id="f-preview"></div>
+
+      <div style="margin-top:18px"><button class="btn" id="btn-submit">送出登記</button></div>
+    </div>
+  </section>
+
+  <!-- 我的案件 -->
+  <section class="page" id="page-mine">
+    <div class="card">
+      <h2>我的案件</h2>
+      <label>選擇門市</label>
+      <select id="m-store"></select>
+      <div id="m-list" style="margin-top:14px"></div>
+    </div>
+  </section>
+
+  <!-- 案件管理（後勤/督導）-->
+  <section class="page" id="page-admin">
+    <div class="card" id="admin-gate">
+      <h2>後勤管理登入</h2>
+      <label>管理密碼</label>
+      <input type="password" id="a-pw" placeholder="請輸入管理密碼" />
+      <div style="margin-top:14px"><button class="btn" id="btn-login">登入</button></div>
+    </div>
+    <div id="admin-body" style="display:none">
+      <div class="card">
+        <h2>案件管理 <span class="small" id="a-count"></span></h2>
+        <div class="filters">
+          <select id="a-fstatus"><option value="">全部狀態</option></select>
+          <select id="a-fsuper"><option value="">全部督導</option></select>
+          <input id="a-fkw" placeholder="搜尋門市／設備／問題" />
+          <button class="btn sec sm" id="a-refresh">重新整理</button>
+        </div>
+        <div id="a-list"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 設定 -->
+  <section class="page" id="page-setting">
+    <div class="card">
+      <h2>門市 → 督導 對照</h2>
+      <div class="hint">每行格式：<code>門市,督導</code>。儲存後門市登記會自動帶入督導並推播對應督導群。</div>
+      <textarea id="set-dir" style="min-height:200px;font-family:monospace;font-size:13px"></textarea>
+      <div style="margin-top:10px"><button class="btn sm" id="set-dir-save">儲存對照表</button></div>
+    </div>
+    <div class="card">
+      <h2>設備清單</h2>
+      <div class="hint">以逗號或換行分隔。</div>
+      <textarea id="set-equip" style="min-height:120px"></textarea>
+      <div style="margin-top:10px"><button class="btn sm" id="set-equip-save">儲存設備</button></div>
+    </div>
+    <div class="card">
+      <h2>管理密碼</h2>
+      <div id="set-pw-list"></div>
+      <div class="row" style="margin-top:8px">
+        <input id="set-pw-new" placeholder="新增一組密碼" />
+        <button class="btn sm" id="set-pw-add" style="flex:0 0 auto">新增</button>
+      </div>
+      <div class="hint">⚠ 預設 123456 為最大破口，請先改成強密碼再刪掉預設。</div>
+    </div>
+  </section>
+
+  <!-- LINE 通知 -->
+  <section class="page" id="page-line">
+    <div class="card">
+      <h2>LINE 推播設定</h2>
+      <div class="hint">使用 LINE 官方帳號 Messaging API。Channel access token 只存於後端 Script Properties，不會出現在本頁原始碼。</div>
+      <label>Channel access token（留空＝不變更）</label>
+      <input id="ln-token" placeholder="貼上後端會覆寫，已設定則顯示空白" />
+      <label>各督導群組 ID</label>
+      <div id="ln-groups"></div>
+      <label>預設／後備群組 ID（找不到對應督導時用；留空＝廣播全部好友）</label>
+      <input id="ln-fallback" />
+      <label>案件查看連結（推播訊息附帶）</label>
+      <input id="ln-link" placeholder="https://.../?m=管理金鑰" />
+      <div class="row" style="margin-top:14px">
+        <button class="btn sm" id="ln-save" style="flex:0 0 auto">儲存設定</button>
+        <button class="btn sec sm" id="ln-test" style="flex:0 0 auto">發送測試訊息</button>
+        <button class="btn gray sm" id="ln-cap" style="flex:0 0 auto">擷取的群組/用戶 ID</button>
+      </div>
+      <div id="ln-capbox" class="hint" style="margin-top:10px"></div>
+      <div class="hint" style="margin-top:14px">取得群組 ID：把官方帳號加進該督導 LINE 群 → 在群裡隨意發一句 → 按上方「擷取的…ID」即可看到 groupId，填入對應督導欄位。</div>
+    </div>
+  </section>
+</main>
+
+<!-- 案件詳情 / 編輯 -->
+<div class="modal" id="modal"><div class="box" id="modal-box"></div></div>
+<div class="toast" id="toast"></div>
+
+<script>
+/* ====== 設定 ====== */
+// 後端 /exec 網址（部署後填入）
+var API_BASE = 'https://script.google.com/macros/s/AKfycbwF7YapsErRssEKCC_NkcxdlztXaJ_NKLi6LjJ2EvFCxn2U_FmW1I4oCrQ23uqhjcLh5g/exec';
+var API_TOKEN = 'rp_8sK2mVq7Xz4Pd';      // 門市端共用 token，需與後端 Script Properties API_TOKEN 一致
+var ADMIN_GATE_KEY = 'UGfix-7Q2x9';      // 網址 ?m=此值 才顯示管理分頁（僅降低曝光，真正驗證在後端密碼）
+var LIFF_ID = '';                        // 若要當 LIFF 用，填 LINE LIFF ID（選填）
+var VERSION = 'v1.0';
+
+/* ====== 狀態 ====== */
+var META = null, ADMIN_PW = '', ADMIN_DATA = [];
+var STATUS_CLASS = {'待處理':'s0','處理中':'s1','待討論':'s2','已結案':'s3'};
+
+/* ====== 工具 ====== */
+function $(s){return document.querySelector(s)}
+function el(tag,cls,txt){var e=document.createElement(tag);if(cls)e.className=cls;if(txt!=null)e.textContent=txt;return e}
+function toast(m){var t=$('#toast');t.textContent=m;t.classList.add('show');setTimeout(function(){t.classList.remove('show')},2200)}
+function badge(s){var b=el('span','badge '+(STATUS_CLASS[s]||'s0'),s);return b}
+function api(payload){
+  return fetch(API_BASE,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify(payload)})
+    .then(function(r){return r.json()})
+    .then(function(j){if(!j.ok)throw new Error(j.error||'錯誤');return j});
+}
+
+/* ====== 分頁切換 ====== */
+document.querySelectorAll('nav button').forEach(function(b){
+  b.onclick=function(){
+    document.querySelectorAll('nav button').forEach(function(x){x.classList.remove('active')});
+    b.classList.add('active');
+    document.querySelectorAll('.page').forEach(function(p){p.classList.remove('active')});
+    $('#page-'+b.dataset.tab).classList.add('active');
+    if(b.dataset.tab==='mine') renderMine();
+  };
+});
+
+/* ====== 初始化 ====== */
+function init(){
+  $('#ver').textContent=VERSION;
+  var q=new URLSearchParams(location.search);
+  if(q.get('m')===ADMIN_GATE_KEY){ document.querySelectorAll('.admin-only').forEach(function(x){x.style.display='block'}); }
+  $('#f-date').value=new Date().toISOString().slice(0,10);
+
+  api({action:'meta'}).then(function(m){
+    META=m;
+    fillStores($('#f-store')); fillStores($('#m-store'),true);
+    fillOptions($('#f-equip'),m.equipment,'請選擇設備');
+    fillOptions($('#f-unit'),[''].concat(m.units),'（暫不指定）');
+    var fs=$('#a-fstatus'); m.statuses.forEach(function(s){fs.appendChild(new Option(s,s))});
+    var fsu=$('#a-fsuper'); m.supervisors.forEach(function(s){fsu.appendChild(new Option(s,s))});
+    onStoreChange();
+  }).catch(function(e){toast('載入失敗：'+e.message)});
+
+  if(LIFF_ID && window.liff){ try{ liff.init({liffId:LIFF_ID}); }catch(e){} }
+}
+function fillStores(sel,withBlank){
+  sel.innerHTML='';
+  if(withBlank) sel.appendChild(new Option('請選擇門市',''));
+  META.stores.forEach(function(s){sel.appendChild(new Option(s,s))});
+}
+function fillOptions(sel,arr,ph){
+  sel.innerHTML='';
+  if(ph) sel.appendChild(new Option(ph,''));
+  arr.forEach(function(o){ if(o!=='') sel.appendChild(new Option(o,o)); else if(!ph) sel.appendChild(new Option('（暫不指定）','')); });
+}
+function onStoreChange(){
+  var s=$('#f-store').value; var sup=(META.directory[s]||'—');
+  $('#f-supervisor').textContent='負責督導：'+sup;
+}
+$('#f-store').onchange=onStoreChange;
+
+/* ====== 照片 ====== */
+var PHOTOS=[];
+$('#f-photos').onchange=function(e){
+  PHOTOS=[]; $('#f-preview').innerHTML='';
+  var files=[].slice.call(e.target.files).slice(0,5);
+  files.forEach(function(f){
+    var rd=new FileReader();
+    rd.onload=function(){ PHOTOS.push({kind:'photo',mime:f.type,dataUrl:rd.result});
+      var img=el('img','thumb'); img.src=rd.result; $('#f-preview').appendChild(img); };
+    rd.readAsDataURL(f);
+  });
+};
+
+/* ====== 送出登記 ====== */
+$('#btn-submit').onclick=function(){
+  var store=$('#f-store').value, equip=$('#f-equip').value, desc=$('#f-desc').value.trim();
+  if(!store) return toast('請選擇門市');
+  if(!equip) return toast('請選擇設備');
+  if(!desc) return toast('請填寫問題描述');
+  this.disabled=true; var btn=this;
+  api({action:'create',token:API_TOKEN,store:store,equipment:equip,
+    occurDate:$('#f-date').value,description:desc,handleUnit:$('#f-unit').value,attachments:PHOTOS})
+  .then(function(r){
+    toast('登記成功！案號 '+r.id+'，已通知督導 '+r.supervisor);
+    $('#f-desc').value=''; PHOTOS=[]; $('#f-photos').value=''; $('#f-preview').innerHTML='';
+  }).catch(function(e){toast('送出失敗：'+e.message)})
+  .then(function(){btn.disabled=false});
+};
+
+/* ====== 我的案件 ====== */
+$('#m-store').onchange=renderMine;
+function renderMine(){
+  var store=$('#m-store').value, box=$('#m-list');
+  if(!store){box.innerHTML='<div class="empty">請先選擇門市</div>';return}
+  box.innerHTML='<div class="empty">載入中…</div>';
+  api({action:'listMine',token:API_TOKEN,store:store}).then(function(r){
+    if(!r.list.length){box.innerHTML='<div class="empty">尚無案件</div>';return}
+    box.innerHTML=''; r.list.forEach(function(c){box.appendChild(caseCard(c,false))});
+  }).catch(function(e){box.innerHTML='<div class="empty">載入失敗：'+e.message+'</div>'});
+}
+function caseCard(c,admin){
+  var d=el('div','case');
+  var top=el('div','top'); top.appendChild(el('span','store',c.store)); top.appendChild(badge(c.status));
+  d.appendChild(top);
+  d.appendChild(el('div','meta','【'+c.equipment+'】 督導：'+(c.supervisor||'-')+' · '+fmtDate(c.createdAt)));
+  d.appendChild(el('div','desc',c.description));
+  if(c.handleUnit) d.appendChild(el('div','meta','相關單位：'+c.handleUnit));
+  d.onclick=function(){admin?openAdminEdit(c):openDetail(c)};
+  return d;
+}
+function fmtDate(s){if(!s)return'';return String(s).replace('T',' ').slice(0,16)}
+
+/* ====== 案件詳情（門市唯讀）====== */
+function openDetail(c){
+  var b=$('#modal-box'); b.innerHTML='';
+  b.appendChild(el('h3',null,c.store+'｜'+c.equipment));
+  b.appendChild(badge(c.status));
+  var kv=[['案號',c.id],['負責督導',c.supervisor],['發生日',c.occurDate],['相關單位',c.handleUnit||'-'],
+    ['問題描述',c.description],['處理說明',c.progressNote||'-'],['修繕確認',c.repairConfirm||'-'],
+    ['督導結案確認',c.supervisorConfirm||'-'],['結案日',c.closeDate||'-']];
+  kv.forEach(function(p){var r=el('div','kv');r.appendChild(el('span',null,p[0]));r.appendChild(el('span',null,String(p[1]||'')));b.appendChild(r)});
+  appendHistory(b,c); appendPhotos(b,c);
+  var close=el('button','btn sec sm','關閉');close.style.marginTop='14px';close.onclick=closeModal;b.appendChild(close);
+  openModal();
+}
+function appendHistory(b,c){
+  var h=[]; try{h=JSON.parse(c.statusHistory||'[]')}catch(e){}
+  if(!h.length)return;
+  b.appendChild(el('label',null,'進度歷程'));
+  var box=el('div','hist');
+  h.forEach(function(x){box.appendChild(el('div',null,fmtDate(x.at)+'　'+(x.from?x.from+'→':'')+x.to+(x.note?'（'+x.note+'）':'')+'　'+(x.by||'')))});
+  b.appendChild(box);
+}
+function appendPhotos(b,c){
+  api({action:'getAttachments',token:API_TOKEN,repairId:c.id}).then(function(r){
+    if(!r.attachments.length)return;
+    var lab=el('label',null,'照片');b.appendChild(lab);
+    r.attachments.forEach(function(a){var img=el('img','thumb');img.src=a.dataUrl;b.appendChild(img)});
+  }).catch(function(){});
+}
+
+/* ====== 管理登入 ====== */
+$('#btn-login').onclick=function(){
+  var pw=$('#a-pw').value;
+  api({action:'adminList',password:pw}).then(function(r){
+    ADMIN_PW=pw; ADMIN_DATA=r.list;
+    $('#admin-gate').style.display='none'; $('#admin-body').style.display='block';
+    renderAdmin(); loadSettings(); loadLine();
+  }).catch(function(e){toast('登入失敗：'+e.message)});
+};
+['a-fstatus','a-fsuper','a-fkw'].forEach(function(id){$('#'+id).oninput=renderAdmin;$('#'+id).onchange=renderAdmin});
+$('#a-refresh').onclick=function(){api({action:'adminList',password:ADMIN_PW}).then(function(r){ADMIN_DATA=r.list;renderAdmin()})};
+function renderAdmin(){
+  var st=$('#a-fstatus').value, su=$('#a-fsuper').value, kw=$('#a-fkw').value.trim();
+  var list=ADMIN_DATA.filter(function(c){
+    if(st&&c.status!==st)return false;
+    if(su&&c.supervisor!==su)return false;
+    if(kw&&[c.store,c.equipment,c.description].join(' ').indexOf(kw)<0)return false;
+    return true;
+  });
+  $('#a-count').textContent='共 '+list.length+' 件';
+  var box=$('#a-list'); box.innerHTML='';
+  if(!list.length){box.innerHTML='<div class="empty">無符合案件</div>';return}
+  list.forEach(function(c){box.appendChild(caseCard(c,true))});
+}
+
+/* ====== 管理編輯 ====== */
+function openAdminEdit(c){
+  var b=$('#modal-box'); b.innerHTML='';
+  b.appendChild(el('h3',null,c.store+'｜'+c.equipment));
+  b.appendChild(el('div','small','案號 '+c.id+' · 督導 '+(c.supervisor||'-')+' · '+fmtDate(c.createdAt)));
+  b.appendChild(el('div','kv')).innerHTML='<span>問題描述</span><span>'+esc(c.description)+'</span>';
+
+  b.appendChild(el('label','req','狀態'));
+  var sel=el('select');sel.id='e-status';META.statuses.forEach(function(s){var o=new Option(s,s);if(s===c.status)o.selected=true;sel.appendChild(o)});b.appendChild(sel);
+
+  b.appendChild(el('label',null,'相關單位'));
+  var us=el('select');us.id='e-unit';[''].concat(META.units).forEach(function(u){var o=new Option(u||'（不指定）',u);if(u===c.handleUnit)o.selected=true;us.appendChild(o)});b.appendChild(us);
+
+  addTA(b,'e-note','處理說明 / 進度',c.progressNote);
+  addTA(b,'e-repair','修繕部門處理確認',c.repairConfirm);
+  addTA(b,'e-sconf','督導結案確認',c.supervisorConfirm);
+  addTA(b,'e-robert','Robert 備註',c.robertNote);
+
+  appendHistory(b,c); appendPhotos(b,c);
+
+  var bar=el('div','row');bar.style.marginTop='16px';
+  var save=el('button','btn','儲存並通知督導');
+  save.onclick=function(){
+    save.disabled=true;
+    api({action:'update',password:ADMIN_PW,id:c.id,actor:'後勤',
+      status:$('#e-status').value,handleUnit:$('#e-unit').value,
+      progressNote:$('#e-note').value,repairConfirm:$('#e-repair').value,
+      supervisorConfirm:$('#e-sconf').value,robertNote:$('#e-robert').value})
+    .then(function(r){toast(r.notified?'已儲存，狀態變更已推播督導':'已儲存');closeModal();
+      return api({action:'adminList',password:ADMIN_PW})})
+    .then(function(r){ADMIN_DATA=r.list;renderAdmin()})
+    .catch(function(e){toast('儲存失敗：'+e.message);save.disabled=false});
+  };
+  var cancel=el('button','btn sec','取消');cancel.onclick=closeModal;
+  bar.appendChild(save);bar.appendChild(cancel);b.appendChild(bar);
+  openModal();
+}
+function addTA(b,id,label,val){b.appendChild(el('label',null,label));var t=el('textarea');t.id=id;t.value=val||'';b.appendChild(t)}
+function esc(s){var d=document.createElement('div');d.textContent=s||'';return d.innerHTML}
+
+/* ====== 設定 ====== */
+function loadSettings(){
+  var dir=META.directory; var lines=Object.keys(dir).sort().map(function(k){return k+','+dir[k]});
+  $('#set-dir').value=lines.join('\n');
+  $('#set-equip').value=META.equipment.join('\n');
+  refreshPw();
+}
+$('#set-dir-save').onclick=function(){
+  var dir={};$('#set-dir').value.split('\n').forEach(function(l){var p=l.split(',');if(p[0]&&p[0].trim()&&p[1])dir[p[0].trim()]=p[1].trim()});
+  api({action:'saveConfig',password:ADMIN_PW,directory:dir}).then(function(){META.directory=dir;META.stores=Object.keys(dir).sort();toast('已儲存對照表')}).catch(function(e){toast(e.message)});
+};
+$('#set-equip-save').onclick=function(){
+  var arr=$('#set-equip').value.split(/[\n,]/).map(function(s){return s.trim()}).filter(Boolean);
+  api({action:'saveConfig',password:ADMIN_PW,equipment:arr}).then(function(){META.equipment=arr;toast('已儲存設備清單')}).catch(function(e){toast(e.message)});
+};
+function refreshPw(){
+  api({action:'listPasswords',password:ADMIN_PW}).then(function(r){
+    var box=$('#set-pw-list');box.innerHTML='';
+    r.passwords.forEach(function(p){var c=el('span','chip');c.appendChild(el('b',null,p));box.appendChild(c)});
+  });
+}
+$('#set-pw-add').onclick=function(){var v=$('#set-pw-new').value.trim();if(!v)return;
+  api({action:'addPassword',password:ADMIN_PW,newPassword:v}).then(function(){$('#set-pw-new').value='';refreshPw();toast('已新增')}).catch(function(e){toast(e.message)})};
+
+/* ====== LINE ====== */
+function loadLine(){
+  api({action:'getLine',password:ADMIN_PW}).then(function(r){
+    $('#ln-fallback').value=r.fallback||''; $('#ln-link').value=r.link||'';
+    $('#ln-token').placeholder=r.tokenSet?'已設定（留空＝不變更）':'尚未設定，請貼上 token';
+    var box=$('#ln-groups');box.innerHTML='';
+    META.supervisors.forEach(function(su){
+      var wrap=el('div');wrap.style.margin='4px 0';
+      var lab=el('span','chip');lab.appendChild(el('b',null,su));
+      var inp=el('input');inp.id='lng-'+su;inp.value=(r.groups&&r.groups[su])||'';inp.placeholder='群組 ID（Cxxxx…）';
+      wrap.appendChild(lab);wrap.appendChild(inp);box.appendChild(wrap);
+    });
+  });
+}
+$('#ln-save').onclick=function(){
+  var groups={};META.supervisors.forEach(function(su){var v=$('#lng-'+su).value.trim();if(v)groups[su]=v});
+  var payload={action:'saveLine',password:ADMIN_PW,groups:groups,fallback:$('#ln-fallback').value.trim(),link:$('#ln-link').value.trim()};
+  if($('#ln-token').value.trim())payload.lineToken=$('#ln-token').value.trim();
+  api(payload).then(function(){toast('LINE 設定已儲存');$('#ln-token').value=''}).catch(function(e){toast(e.message)});
+};
+$('#ln-test').onclick=function(){
+  api({action:'pushTest',password:ADMIN_PW,to:$('#ln-fallback').value.trim()}).then(function(r){toast(r.ok?'測試送出成功（HTTP '+r.code+'）→ '+r.to:'失敗 HTTP '+r.code)}).catch(function(e){toast(e.message)});
+};
+$('#ln-cap').onclick=function(){
+  api({action:'capturedIds',password:ADMIN_PW}).then(function(r){
+    if(!r.ids.length){$('#ln-capbox').textContent='尚未擷取到任何 ID（請先把官方帳號加入群組並發話）';return}
+    $('#ln-capbox').innerHTML=r.ids.map(function(x){return fmtDate(x.at)+'　'+x.type+'　group:'+(x.groupId||'-')+'　user:'+(x.userId||'-')}).join('<br>');
+  });
+};
+
+/* ====== modal ====== */
+function openModal(){$('#modal').classList.add('open')}
+function closeModal(){$('#modal').classList.remove('open')}
+$('#modal').onclick=function(e){if(e.target===this)closeModal()};
+
+init();
+</script>
+</body>
+</html>
