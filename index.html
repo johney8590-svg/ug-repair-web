@@ -352,20 +352,9 @@ function caseCard(c,admin){
   d.appendChild(el('div','meta','【'+c.equipment+'】 督導：'+(c.supervisor||'-')+' · '+fmtDate(c.createdAt)));
   d.appendChild(el('div','desc',c.description));
   if(c.handleUnit) d.appendChild(el('div','meta','相關單位：'+c.handleUnit));
-  if(c.photos&&c.photos.length){
-    var pw=el('div','photos');
-    c.photos.forEach(function(u){var img=el('img','thumb');img.src=u;img.loading='lazy';
-      img.onclick=function(ev){ev.stopPropagation();openLightbox(u)};pw.appendChild(img)});
-    d.appendChild(pw);
-  }
+  if(c.photoCount) d.appendChild(el('div','meta','📷 '+c.photoCount+' 張照片（點進查看）'));
   d.onclick=function(){admin?openAdminEdit(c):openDetail(c)};
   return d;
-}
-function openLightbox(u){
-  var b=$('#modal-box');b.innerHTML='';
-  var img=el('img');img.src=u;img.style.maxWidth='100%';img.style.borderRadius='6px';b.appendChild(img);
-  var close=el('button','btn sec sm','關閉');close.style.marginTop='12px';close.onclick=closeModal;b.appendChild(close);
-  openModal();
 }
 function fmtDate(s){if(!s)return'';return String(s).replace('T',' ').slice(0,16)}
 
