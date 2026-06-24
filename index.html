@@ -42,6 +42,7 @@
   .s1{background:#FFF4D6;color:#9a7400}
   .s2{background:#FBE2E4;color:#b21f2d}
   .s3{background:#E3F4E8;color:#1e7a37}
+  .s4{background:#E3EDF7;color:#2b5a8c}
   .case{border:1px solid var(--line);border-radius:6px;padding:12px 14px;margin-bottom:10px;background:#fff;cursor:pointer}
   .case:hover{border-color:var(--leaf)}
   .case .top{display:flex;justify-content:space-between;align-items:center;gap:8px}
@@ -207,7 +208,7 @@ var VERSION = 'v1.0';
 
 /* ====== 狀態 ====== */
 var META = null, ADMIN_PW = '', ADMIN_DATA = [];
-var STATUS_CLASS = {'待處理':'s0','處理中':'s1','待討論':'s2','已結案':'s3'};
+var STATUS_CLASS = {'待處理':'s0','處理中':'s1','更換負責單位':'s4','待討論':'s2','已結案':'s3'};
 
 /* ====== 工具 ====== */
 function $(s){return document.querySelector(s)}
@@ -382,7 +383,7 @@ function openAdminEdit(c){
   b.appendChild(el('label','req','狀態'));
   var sel=el('select');sel.id='e-status';META.statuses.forEach(function(s){var o=new Option(s,s);if(s===c.status)o.selected=true;sel.appendChild(o)});b.appendChild(sel);
 
-  b.appendChild(el('label',null,'相關單位'));
+  b.appendChild(el('label',null,'相關單位（更改即自動轉「更換負責單位」並通知群組）'));
   var us=el('select');us.id='e-unit';[''].concat(META.units).forEach(function(u){var o=new Option(u||'（不指定）',u);if(u===c.handleUnit)o.selected=true;us.appendChild(o)});b.appendChild(us);
 
   addTA(b,'e-note','處理說明 / 進度',c.progressNote);
