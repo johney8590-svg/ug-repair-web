@@ -35,6 +35,8 @@
   .btn.sec{background:transparent;border:1px solid var(--green);color:var(--green)}
   .btn.sm{padding:6px 12px;font-size:13px}
   .btn.gray{background:#fff;border:1px solid var(--line);color:var(--gray)}
+  .btn.danger{background:#fff;border:1px solid var(--bad);color:var(--bad)}
+  .case .photos{margin-top:6px;display:flex;flex-wrap:wrap;gap:4px}
   .row{display:flex;gap:10px;flex-wrap:wrap}
   .row>*{flex:1;min-width:140px}
   .badge{display:inline-block;padding:2px 10px;border-radius:999px;font-size:12px;font-weight:600;white-space:nowrap}
@@ -142,12 +144,6 @@
 
   <!-- 案件管理（後勤/督導）-->
   <section class="page" id="page-admin">
-    <div class="card" id="admin-gate">
-      <h2>後勤管理登入</h2>
-      <label>管理密碼</label>
-      <input type="password" id="a-pw" placeholder="請輸入管理密碼" />
-      <div style="margin-top:14px"><button class="btn" id="btn-login">登入</button></div>
-    </div>
     <div id="admin-body" style="display:none">
       <div class="card">
         <h2>統計摘要 <span class="small">（隨下方篩選／期間連動，可用來量化妥善率）</span></h2>
@@ -193,15 +189,6 @@
       <textarea id="set-equip" style="min-height:120px"></textarea>
       <div style="margin-top:10px"><button class="btn sm" id="set-equip-save">儲存設備</button></div>
     </div>
-    <div class="card">
-      <h2>管理密碼</h2>
-      <div id="set-pw-list"></div>
-      <div class="row" style="margin-top:8px">
-        <input id="set-pw-new" placeholder="新增一組密碼" />
-        <button class="btn sm" id="set-pw-add" style="flex:0 0 auto">新增</button>
-      </div>
-      <div class="hint">⚠ 預設 123456 為最大破口，請先改成強密碼再刪掉預設。</div>
-    </div>
   </section>
 
   <!-- LINE 通知 -->
@@ -242,7 +229,7 @@ var LIFF_ID = '';                        // 若要當 LIFF 用，填 LINE LIFF I
 var VERSION = 'v1.0';
 
 /* ====== 狀態 ====== */
-var META = null, ADMIN_PW = '', ADMIN_DATA = [];
+var META = null, ADMIN_KEY = '', ADMIN_DATA = [];
 var STATUS_CLASS = {'待處理':'s0','處理中':'s1','更換負責單位':'s4','待討論':'s2','已結案':'s3'};
 
 /* ====== 工具 ====== */
@@ -268,10 +255,14 @@ document.querySelectorAll('nav button').forEach(function(b){
 });
 
 /* ====== 初始化 ====== */
+var IS_ADMIN=false;
 function init(){
   $('#ver').textContent=VERSION;
   var q=new URLSearchParams(location.search);
-  if(q.get('m')===ADMIN_GATE_KEY){ document.querySelectorAll('.admin-only').forEach(function(x){x.style.display='block'}); }
+  if(q.get('m')===ADMIN_GATE_KEY){
+    IS_ADMIN=true; ADMIN_KEY=q.get('m');
+    document.querySelectorAll('.admin-only').forEach(function(x){x.style.display='block'});
+  }
   $('#f-date').value=new Date().toISOString().slice(0,10);
 
   api({action:'meta'}).then(function(m){
@@ -282,9 +273,21 @@ function init(){
     var fs=$('#a-fstatus'); m.statuses.forEach(function(s){fs.appendChild(new Option(s,s))});
     var fsu=$('#a-fsuper'); m.supervisors.forEach(function(s){fsu.appendChild(new Option(s,s))});
     onStoreChange();
+    if(IS_ADMIN) enterAdmin();   // 有管理連結 → 直接進案件管理，免登入
   }).catch(function(e){toast('載入失敗：'+e.message)});
 
   if(LIFF_ID && window.liff){ try{ liff.init({liffId:LIFF_ID}); }catch(e){} }
+}
+// 直接進入案件管理（無密碼）
+function enterAdmin(){
+  var tab=[].slice.call(document.querySelectorAll('nav button')).filter(function(b){return b.dataset.tab==='admin'})[0];
+  if(tab){ document.querySelectorAll('nav button').forEach(function(x){x.classList.remove('active')});
+    tab.classList.add('active');
+    document.querySelectorAll('.page').forEach(function(p){p.classList.remove('active')});
+    $('#page-admin').classList.add('active'); }
+  $('#admin-body').style.display='block';
+  api({action:'adminList',adminKey:ADMIN_KEY}).then(function(r){ADMIN_DATA=r.list;renderAdmin();loadSettings();loadLine();})
+    .catch(function(e){toast('管理載入失敗：'+e.message)});
 }
 function fillStores(sel,withBlank){
   sel.innerHTML='';
@@ -349,8 +352,20 @@ function caseCard(c,admin){
   d.appendChild(el('div','meta','【'+c.equipment+'】 督導：'+(c.supervisor||'-')+' · '+fmtDate(c.createdAt)));
   d.appendChild(el('div','desc',c.description));
   if(c.handleUnit) d.appendChild(el('div','meta','相關單位：'+c.handleUnit));
+  if(c.photos&&c.photos.length){
+    var pw=el('div','photos');
+    c.photos.forEach(function(u){var img=el('img','thumb');img.src=u;img.loading='lazy';
+      img.onclick=function(ev){ev.stopPropagation();openLightbox(u)};pw.appendChild(img)});
+    d.appendChild(pw);
+  }
   d.onclick=function(){admin?openAdminEdit(c):openDetail(c)};
   return d;
+}
+function openLightbox(u){
+  var b=$('#modal-box');b.innerHTML='';
+  var img=el('img');img.src=u;img.style.maxWidth='100%';img.style.borderRadius='6px';b.appendChild(img);
+  var close=el('button','btn sec sm','關閉');close.style.marginTop='12px';close.onclick=closeModal;b.appendChild(close);
+  openModal();
 }
 function fmtDate(s){if(!s)return'';return String(s).replace('T',' ').slice(0,16)}
 
@@ -384,14 +399,6 @@ function appendPhotos(b,c){
 }
 
 /* ====== 管理登入 ====== */
-$('#btn-login').onclick=function(){
-  var pw=$('#a-pw').value;
-  api({action:'adminList',password:pw}).then(function(r){
-    ADMIN_PW=pw; ADMIN_DATA=r.list;
-    $('#admin-gate').style.display='none'; $('#admin-body').style.display='block';
-    renderAdmin(); loadSettings(); loadLine();
-  }).catch(function(e){toast('登入失敗：'+e.message)});
-};
 var SORT='todo';
 ['a-fstatus','a-fsuper','a-fkw','a-ffrom','a-fto'].forEach(function(id){var e=$('#'+id);e.oninput=renderAdmin;e.onchange=renderAdmin});
 $('#a-fclear').onclick=function(){$('#a-ffrom').value='';$('#a-fto').value='';renderAdmin()};
@@ -399,7 +406,7 @@ document.querySelectorAll('.sortbtn').forEach(function(b){b.onclick=function(){
   document.querySelectorAll('.sortbtn').forEach(function(x){x.classList.remove('active')});
   b.classList.add('active');SORT=b.dataset.sort;renderAdmin();
 }});
-$('#a-refresh').onclick=function(){api({action:'adminList',password:ADMIN_PW}).then(function(r){ADMIN_DATA=r.list;renderAdmin()})};
+$('#a-refresh').onclick=function(){api({action:'adminList',adminKey:ADMIN_KEY}).then(function(r){ADMIN_DATA=r.list;renderAdmin()})};
 
 function adminFiltered(){
   var st=$('#a-fstatus').value, su=$('#a-fsuper').value, kw=$('#a-fkw').value.trim();
@@ -485,17 +492,28 @@ function openAdminEdit(c){
   var save=el('button','btn','儲存並通知督導');
   save.onclick=function(){
     save.disabled=true;
-    api({action:'update',password:ADMIN_PW,id:c.id,actor:'後勤',
+    api({action:'update',adminKey:ADMIN_KEY,id:c.id,actor:'後勤',
       status:$('#e-status').value,handleUnit:$('#e-unit').value,
       progressNote:$('#e-note').value,repairConfirm:$('#e-repair').value,
       supervisorConfirm:$('#e-sconf').value,robertNote:$('#e-robert').value})
     .then(function(r){toast(r.notified?'已儲存，狀態變更已推播督導':'已儲存');closeModal();
-      return api({action:'adminList',password:ADMIN_PW})})
+      return api({action:'adminList',adminKey:ADMIN_KEY})})
     .then(function(r){ADMIN_DATA=r.list;renderAdmin()})
     .catch(function(e){toast('儲存失敗：'+e.message);save.disabled=false});
   };
   var cancel=el('button','btn sec','取消');cancel.onclick=closeModal;
   bar.appendChild(save);bar.appendChild(cancel);b.appendChild(bar);
+
+  var del=el('button','btn danger sm','刪除此案件');del.style.marginTop='12px';
+  del.onclick=function(){
+    if(!confirm('確定刪除案件 '+c.id+'（'+c.store+'）？此動作無法復原，照片也會一併刪除。'))return;
+    del.disabled=true;
+    api({action:'delete',adminKey:ADMIN_KEY,id:c.id})
+    .then(function(){toast('已刪除 '+c.id);closeModal();return api({action:'adminList',adminKey:ADMIN_KEY})})
+    .then(function(r){ADMIN_DATA=r.list;renderAdmin()})
+    .catch(function(e){toast('刪除失敗：'+e.message);del.disabled=false});
+  };
+  b.appendChild(del);
   openModal();
 }
 function addTA(b,id,label,val){b.appendChild(el('label',null,label));var t=el('textarea');t.id=id;t.value=val||'';b.appendChild(t)}
@@ -506,28 +524,18 @@ function loadSettings(){
   var dir=META.directory; var lines=Object.keys(dir).sort().map(function(k){return k+','+dir[k]});
   $('#set-dir').value=lines.join('\n');
   $('#set-equip').value=META.equipment.join('\n');
-  refreshPw();
 }
 $('#set-dir-save').onclick=function(){
   var dir={};$('#set-dir').value.split('\n').forEach(function(l){var p=l.split(',');if(p[0]&&p[0].trim()&&p[1])dir[p[0].trim()]=p[1].trim()});
-  api({action:'saveConfig',password:ADMIN_PW,directory:dir}).then(function(){META.directory=dir;META.stores=Object.keys(dir).sort();toast('已儲存對照表')}).catch(function(e){toast(e.message)});
+  api({action:'saveConfig',adminKey:ADMIN_KEY,directory:dir}).then(function(){META.directory=dir;META.stores=Object.keys(dir).sort();toast('已儲存對照表')}).catch(function(e){toast(e.message)});
 };
 $('#set-equip-save').onclick=function(){
   var arr=$('#set-equip').value.split(/[\n,]/).map(function(s){return s.trim()}).filter(Boolean);
-  api({action:'saveConfig',password:ADMIN_PW,equipment:arr}).then(function(){META.equipment=arr;toast('已儲存設備清單')}).catch(function(e){toast(e.message)});
+  api({action:'saveConfig',adminKey:ADMIN_KEY,equipment:arr}).then(function(){META.equipment=arr;toast('已儲存設備清單')}).catch(function(e){toast(e.message)});
 };
-function refreshPw(){
-  api({action:'listPasswords',password:ADMIN_PW}).then(function(r){
-    var box=$('#set-pw-list');box.innerHTML='';
-    r.passwords.forEach(function(p){var c=el('span','chip');c.appendChild(el('b',null,p));box.appendChild(c)});
-  });
-}
-$('#set-pw-add').onclick=function(){var v=$('#set-pw-new').value.trim();if(!v)return;
-  api({action:'addPassword',password:ADMIN_PW,newPassword:v}).then(function(){$('#set-pw-new').value='';refreshPw();toast('已新增')}).catch(function(e){toast(e.message)})};
-
 /* ====== LINE ====== */
 function loadLine(){
-  api({action:'getLine',password:ADMIN_PW}).then(function(r){
+  api({action:'getLine',adminKey:ADMIN_KEY}).then(function(r){
     $('#ln-fallback').value=r.fallback||''; $('#ln-link').value=r.link||'';
     $('#ln-token').placeholder=r.tokenSet?'已設定（留空＝不變更）':'尚未設定，請貼上 token';
     var box=$('#ln-groups');box.innerHTML='';
@@ -541,15 +549,15 @@ function loadLine(){
 }
 $('#ln-save').onclick=function(){
   var groups={};META.supervisors.forEach(function(su){var v=$('#lng-'+su).value.trim();if(v)groups[su]=v});
-  var payload={action:'saveLine',password:ADMIN_PW,groups:groups,fallback:$('#ln-fallback').value.trim(),link:$('#ln-link').value.trim()};
+  var payload={action:'saveLine',adminKey:ADMIN_KEY,groups:groups,fallback:$('#ln-fallback').value.trim(),link:$('#ln-link').value.trim()};
   if($('#ln-token').value.trim())payload.lineToken=$('#ln-token').value.trim();
   api(payload).then(function(){toast('LINE 設定已儲存');$('#ln-token').value=''}).catch(function(e){toast(e.message)});
 };
 $('#ln-test').onclick=function(){
-  api({action:'pushTest',password:ADMIN_PW,to:$('#ln-fallback').value.trim()}).then(function(r){toast(r.ok?'測試送出成功（HTTP '+r.code+'）→ '+r.to:'失敗 HTTP '+r.code)}).catch(function(e){toast(e.message)});
+  api({action:'pushTest',adminKey:ADMIN_KEY,to:$('#ln-fallback').value.trim()}).then(function(r){toast(r.ok?'測試送出成功（HTTP '+r.code+'）→ '+r.to:'失敗 HTTP '+r.code)}).catch(function(e){toast(e.message)});
 };
 $('#ln-cap').onclick=function(){
-  api({action:'capturedIds',password:ADMIN_PW}).then(function(r){
+  api({action:'capturedIds',adminKey:ADMIN_KEY}).then(function(r){
     if(!r.ids.length){$('#ln-capbox').textContent='尚未擷取到任何 ID（請先把官方帳號加入群組並發話）';return}
     $('#ln-capbox').innerHTML=r.ids.map(function(x){return fmtDate(x.at)+'　'+x.type+'　group:'+(x.groupId||'-')+'　user:'+(x.userId||'-')}).join('<br>');
   });
