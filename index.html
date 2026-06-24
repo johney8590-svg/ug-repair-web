@@ -124,8 +124,9 @@
       <label>相關單位（門市可先建議，後勤可再調整）</label>
       <select id="f-unit"></select>
 
-      <label>照片（最多 5 張，選填）</label>
-      <input type="file" id="f-photos" accept="image/*" multiple />
+      <label>照片／影片（最多 5 個，影片可上傳，選填）</label>
+      <input type="file" id="f-photos" accept="image/*,video/*" multiple />
+      <div class="hint">影片單檔上限 20MB（太大請先用手機壓縮或剪短）。</div>
       <div id="f-preview"></div>
 
       <div style="margin-top:18px"><button class="btn" id="btn-submit">送出登記</button></div>
@@ -309,15 +310,20 @@ function onStoreChange(){
 }
 $('#f-store').onchange=onStoreChange;
 
-/* ====== 照片 ====== */
+/* ====== 照片／影片 ====== */
 var PHOTOS=[];
 $('#f-photos').onchange=function(e){
   PHOTOS=[]; $('#f-preview').innerHTML='';
   var files=[].slice.call(e.target.files).slice(0,5);
   files.forEach(function(f){
+    var isVid=/^video\//.test(f.type);
+    if(isVid && f.size>20*1024*1024){ toast('影片「'+f.name+'」超過 20MB，未加入'); return; }
     var rd=new FileReader();
-    rd.onload=function(){ PHOTOS.push({kind:'photo',mime:f.type,dataUrl:rd.result});
-      var img=el('img','thumb'); img.src=rd.result; $('#f-preview').appendChild(img); };
+    rd.onload=function(){
+      PHOTOS.push({kind:isVid?'video':'photo',mime:f.type,dataUrl:rd.result});
+      if(isVid){ var v=el('video','thumb'); v.src=rd.result; v.muted=true; $('#f-preview').appendChild(v); }
+      else { var img=el('img','thumb'); img.src=rd.result; $('#f-preview').appendChild(img); }
+    };
     rd.readAsDataURL(f);
   });
 };
@@ -356,7 +362,7 @@ function caseCard(c,admin){
   d.appendChild(el('div','meta','【'+c.equipment+'】 督導：'+(c.supervisor||'-')+' · '+fmtDate(c.createdAt)));
   d.appendChild(el('div','desc',c.description));
   if(c.handleUnit) d.appendChild(el('div','meta','相關單位：'+c.handleUnit));
-  if(c.photoCount) d.appendChild(el('div','meta','📷 '+c.photoCount+' 張照片（點進查看）'));
+  if(c.photoCount) d.appendChild(el('div','meta','📎 '+c.photoCount+' 個附件（照片/影片，點進查看）'));
   d.onclick=function(){admin?openAdminEdit(c):openDetail(c)};
   return d;
 }
@@ -386,8 +392,15 @@ function appendHistory(b,c){
 function appendPhotos(b,c){
   api({action:'getAttachments',token:API_TOKEN,repairId:c.id}).then(function(r){
     if(!r.attachments.length)return;
-    var lab=el('label',null,'照片');b.appendChild(lab);
-    r.attachments.forEach(function(a){var img=el('img','thumb');img.src=a.dataUrl;b.appendChild(img)});
+    b.appendChild(el('label',null,'照片／影片'));
+    r.attachments.forEach(function(a){
+      if(a.kind==='video'){
+        var link=el('a','btn sec sm','▶ 播放影片');link.href=a.dataUrl;link.target='_blank';
+        link.style.display='inline-block';link.style.margin='4px 6px 0 0';b.appendChild(link);
+      } else {
+        var img=el('img','thumb');img.src=a.dataUrl;b.appendChild(img);
+      }
+    });
   }).catch(function(){});
 }
 
