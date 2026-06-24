@@ -152,6 +152,8 @@
       <div class="card">
         <h2>案件管理 <span class="small" id="a-count"></span></h2>
         <div class="filters">
+          <select id="a-funit"><option value="">全部單位／部門</option></select>
+          <select id="a-fequip"><option value="">全部設備</option></select>
           <select id="a-fstatus"><option value="">全部狀態</option></select>
           <select id="a-fsuper"><option value="">全部督導</option></select>
           <input id="a-fkw" placeholder="搜尋門市／設備／問題" />
@@ -166,7 +168,7 @@
         </div>
         <div class="sortbar">
           <span>排序：</span>
-          <button class="sortbtn active" data-sort="todo">待辦優先（最久在前）</button>
+          <button class="sortbtn active" data-sort="todo">待辦優先（最新在前）</button>
           <button class="sortbtn" data-sort="new">最新登記</button>
           <button class="sortbtn" data-sort="old">最早登記</button>
         </div>
@@ -272,6 +274,8 @@ function init(){
     fillOptions($('#f-unit'),[''].concat(m.units),'（暫不指定）');
     var fs=$('#a-fstatus'); m.statuses.forEach(function(s){fs.appendChild(new Option(s,s))});
     var fsu=$('#a-fsuper'); m.supervisors.forEach(function(s){fsu.appendChild(new Option(s,s))});
+    var fu=$('#a-funit'); m.units.forEach(function(u){fu.appendChild(new Option(u,u))});
+    var fe=$('#a-fequip'); m.equipment.forEach(function(eq){fe.appendChild(new Option(eq,eq))});
     onStoreChange();
     if(IS_ADMIN) enterAdmin();   // 有管理連結 → 直接進案件管理，免登入
   }).catch(function(e){toast('載入失敗：'+e.message)});
@@ -389,7 +393,7 @@ function appendPhotos(b,c){
 
 /* ====== 管理登入 ====== */
 var SORT='todo';
-['a-fstatus','a-fsuper','a-fkw','a-ffrom','a-fto'].forEach(function(id){var e=$('#'+id);e.oninput=renderAdmin;e.onchange=renderAdmin});
+['a-funit','a-fequip','a-fstatus','a-fsuper','a-fkw','a-ffrom','a-fto'].forEach(function(id){var e=$('#'+id);e.oninput=renderAdmin;e.onchange=renderAdmin});
 $('#a-fclear').onclick=function(){$('#a-ffrom').value='';$('#a-fto').value='';renderAdmin()};
 document.querySelectorAll('.sortbtn').forEach(function(b){b.onclick=function(){
   document.querySelectorAll('.sortbtn').forEach(function(x){x.classList.remove('active')});
@@ -399,11 +403,14 @@ $('#a-refresh').onclick=function(){api({action:'adminList',adminKey:ADMIN_KEY}).
 
 function adminFiltered(){
   var st=$('#a-fstatus').value, su=$('#a-fsuper').value, kw=$('#a-fkw').value.trim();
+  var un=$('#a-funit').value, eq=$('#a-fequip').value;
   var from=$('#a-ffrom').value, to=$('#a-fto').value;
   return ADMIN_DATA.filter(function(c){
     var d=String(c.createdAt||'').slice(0,10);
     if(from&&d<from)return false;
     if(to&&d>to)return false;
+    if(un&&c.handleUnit!==un)return false;
+    if(eq&&c.equipment!==eq)return false;
     if(st&&c.status!==st)return false;
     if(su&&c.supervisor!==su)return false;
     if(kw&&[c.store,c.equipment,c.description,c.handleUnit].join(' ').indexOf(kw)<0)return false;
@@ -416,7 +423,7 @@ function renderAdmin(){
   renderStats(list);
   $('#a-count').textContent='共 '+list.length+' 件';
   var sorted=list.slice();
-  if(SORT==='todo') sorted.sort(function(a,b){var ca=a.status==='已結案'?1:0,cb=b.status==='已結案'?1:0;return ca!==cb?ca-cb:cmpt(a.createdAt,b.createdAt)});
+  if(SORT==='todo') sorted.sort(function(a,b){var ca=a.status==='已結案'?1:0,cb=b.status==='已結案'?1:0;return ca!==cb?ca-cb:cmpt(b.createdAt,a.createdAt)});
   else if(SORT==='old') sorted.sort(function(a,b){return cmpt(a.createdAt,b.createdAt)});
   else sorted.sort(function(a,b){return cmpt(b.createdAt,a.createdAt)});
   var box=$('#a-list'); box.innerHTML='';
