@@ -114,15 +114,21 @@
       <div class="hint" id="f-supervisor">負責督導：—</div>
 
       <div class="row">
-        <div><label class="req">設備</label><select id="f-equip"></select></div>
+        <div><label>區域（先選縮小範圍；不確定可留「全部」直接找項目）</label><select id="f-zone"></select></div>
         <div><label>發生日</label><input type="date" id="f-date" /></div>
+      </div>
+
+      <label class="req">報修項目</label>
+      <select id="f-equip"></select>
+      <div class="hint" id="f-unit-hint">報修單位：—</div>
+
+      <div id="f-equipno-wrap" style="display:none">
+        <label class="req">設備編號</label>
+        <input id="f-equipno" placeholder="此設備需填寫設備編號（在設備標籤上）" />
       </div>
 
       <label class="req">問題描述</label>
       <textarea id="f-desc" placeholder="請描述故障狀況，例：製二冰槽蓋子滾輪卡住無法開關"></textarea>
-
-      <label>相關單位（門市可先建議，後勤可再調整）</label>
-      <select id="f-unit"></select>
 
       <label>照片／影片（最多 5 個，影片可上傳，選填）</label>
       <input type="file" id="f-photos" accept="image/*,video/*" multiple />
@@ -187,10 +193,10 @@
       <div style="margin-top:10px"><button class="btn sm" id="set-dir-save">儲存對照表</button></div>
     </div>
     <div class="card">
-      <h2>設備清單</h2>
-      <div class="hint">以逗號或換行分隔。</div>
-      <textarea id="set-equip" style="min-height:120px"></textarea>
-      <div style="margin-top:10px"><button class="btn sm" id="set-equip-save">儲存設備</button></div>
+      <h2>報修項目（分區）</h2>
+      <div class="hint">每行格式：<code>區域,報修項目,報修單位,設備編號</code>。最後一欄填 <code>Y</code> 代表該項目門市登記時<b>強制要填設備編號</b>（留空＝不用）。報修單位會在門市選項目時自動帶入。</div>
+      <textarea id="set-equip" style="min-height:260px;font-family:monospace;font-size:13px"></textarea>
+      <div style="margin-top:10px"><button class="btn sm" id="set-equip-save">儲存報修項目</button></div>
     </div>
   </section>
 
@@ -271,8 +277,9 @@ function init(){
   api({action:'meta'}).then(function(m){
     META=m;
     fillStores($('#f-store')); fillStores($('#m-store'),true);
-    fillOptions($('#f-equip'),m.equipment,'請選擇設備');
-    fillOptions($('#f-unit'),[''].concat(m.units),'（暫不指定）');
+    var fz=$('#f-zone'); fz.appendChild(new Option('全部（直接找項目）',''));
+    m.zones.forEach(function(z){fz.appendChild(new Option(z.zone,z.zone))});
+    fillItems('');
     var fs=$('#a-fstatus'); m.statuses.forEach(function(s){fs.appendChild(new Option(s,s))});
     var fsu=$('#a-fsuper'); m.supervisors.forEach(function(s){fsu.appendChild(new Option(s,s))});
     var fu=$('#a-funit'); m.units.forEach(function(u){fu.appendChild(new Option(u,u))});
@@ -310,6 +317,25 @@ function onStoreChange(){
 }
 $('#f-store').onchange=onStoreChange;
 
+// 區域→項目（選分區縮小範圍；留空＝全部項目去重直接選）
+function fillItems(zone){
+  var sel=$('#f-equip'); sel.innerHTML=''; sel.appendChild(new Option('請選擇報修項目',''));
+  var items;
+  if(zone){ var z=META.zones.filter(function(x){return x.zone===zone})[0]; items=z?z.items:[]; }
+  else { items=META.equipment; }
+  items.forEach(function(it){ sel.appendChild(new Option(it,it)); });
+  onItemChange();
+}
+function onItemChange(){
+  var it=$('#f-equip').value; var m=it?META.itemMeta[it]:null;
+  $('#f-unit-hint').textContent='報修單位：'+(m&&m.unit?m.unit:'—');
+  var need=!!(m&&m.need);
+  $('#f-equipno-wrap').style.display=need?'block':'none';
+  if(!need) $('#f-equipno').value='';
+}
+$('#f-zone').onchange=function(){fillItems(this.value)};
+$('#f-equip').onchange=onItemChange;
+
 /* ====== 照片／影片 ====== */
 var PHOTOS=[];
 $('#f-photos').onchange=function(e){
@@ -330,16 +356,18 @@ $('#f-photos').onchange=function(e){
 
 /* ====== 送出登記 ====== */
 $('#btn-submit').onclick=function(){
-  var store=$('#f-store').value, equip=$('#f-equip').value, desc=$('#f-desc').value.trim();
+  var store=$('#f-store').value, item=$('#f-equip').value, desc=$('#f-desc').value.trim();
   if(!store) return toast('請選擇門市');
-  if(!equip) return toast('請選擇設備');
+  if(!item) return toast('請選擇報修項目');
+  var m=META.itemMeta[item], equipNo=$('#f-equipno').value.trim();
+  if(m&&m.need&&!equipNo) return toast('「'+item+'」需填寫設備編號');
   if(!desc) return toast('請填寫問題描述');
   this.disabled=true; var btn=this;
-  api({action:'create',token:API_TOKEN,store:store,equipment:equip,
-    occurDate:$('#f-date').value,description:desc,handleUnit:$('#f-unit').value,attachments:PHOTOS})
+  api({action:'create',token:API_TOKEN,store:store,equipment:item,zone:$('#f-zone').value,equipNo:equipNo,
+    occurDate:$('#f-date').value,description:desc,attachments:PHOTOS})
   .then(function(r){
     toast('登記成功！案號 '+r.id+'，已通知督導 '+r.supervisor);
-    $('#f-desc').value=''; PHOTOS=[]; $('#f-photos').value=''; $('#f-preview').innerHTML='';
+    $('#f-desc').value=''; $('#f-equip').value=''; onItemChange(); PHOTOS=[]; $('#f-photos').value=''; $('#f-preview').innerHTML='';
   }).catch(function(e){toast('送出失敗：'+e.message)})
   .then(function(){btn.disabled=false});
 };
@@ -373,7 +401,8 @@ function openDetail(c){
   var b=$('#modal-box'); b.innerHTML='';
   b.appendChild(el('h3',null,c.store+'｜'+c.equipment));
   b.appendChild(badge(c.status));
-  var kv=[['案號',c.id],['負責督導',c.supervisor],['發生日',c.occurDate],['相關單位',c.handleUnit||'-'],
+  var kv=[['案號',c.id],['負責督導',c.supervisor],['區域',c.zone||'-'],['設備編號',c.equipNo||'-'],
+    ['發生日',c.occurDate],['相關單位',c.handleUnit||'-'],
     ['問題描述',c.description],['處理說明',c.progressNote||'-'],['修繕確認',c.repairConfirm||'-'],
     ['督導結案確認',c.supervisorConfirm||'-'],['結案日',c.closeDate||'-']];
   kv.forEach(function(p){var r=el('div','kv');r.appendChild(el('span',null,p[0]));r.appendChild(el('span',null,String(p[1]||'')));b.appendChild(r)});
@@ -481,7 +510,7 @@ function closeDays(c){
 function openAdminEdit(c){
   var b=$('#modal-box'); b.innerHTML='';
   b.appendChild(el('h3',null,c.store+'｜'+c.equipment));
-  b.appendChild(el('div','small','案號 '+c.id+' · 督導 '+(c.supervisor||'-')+' · '+fmtDate(c.createdAt)));
+  b.appendChild(el('div','small','案號 '+c.id+' · 督導 '+(c.supervisor||'-')+(c.zone?' · '+c.zone:'')+(c.equipNo?' · 設備號 '+c.equipNo:'')+' · '+fmtDate(c.createdAt)));
   b.appendChild(el('div','kv')).innerHTML='<span>問題描述</span><span>'+esc(c.description)+'</span>';
 
   b.appendChild(el('label','req','狀態'));
@@ -532,15 +561,33 @@ function esc(s){var d=document.createElement('div');d.textContent=s||'';return d
 function loadSettings(){
   var dir=META.directory; var lines=Object.keys(dir).sort().map(function(k){return k+','+dir[k]});
   $('#set-dir').value=lines.join('\n');
-  $('#set-equip').value=META.equipment.join('\n');
+  var rows=[];
+  META.zones.forEach(function(z){z.items.forEach(function(it){var m=META.itemMeta[it]||{};
+    rows.push(z.zone+','+it+','+(m.unit||'')+','+(m.need?'Y':''))})});
+  $('#set-equip').value=rows.join('\n');
 }
 $('#set-dir-save').onclick=function(){
   var dir={};$('#set-dir').value.split('\n').forEach(function(l){var p=l.split(',');if(p[0]&&p[0].trim()&&p[1])dir[p[0].trim()]=p[1].trim()});
   api({action:'saveConfig',adminKey:ADMIN_KEY,directory:dir}).then(function(){META.directory=dir;META.stores=Object.keys(dir).sort();toast('已儲存對照表')}).catch(function(e){toast(e.message)});
 };
 $('#set-equip-save').onclick=function(){
-  var arr=$('#set-equip').value.split(/[\n,]/).map(function(s){return s.trim()}).filter(Boolean);
-  api({action:'saveConfig',adminKey:ADMIN_KEY,equipment:arr}).then(function(){META.equipment=arr;toast('已儲存設備清單')}).catch(function(e){toast(e.message)});
+  var zones={};
+  $('#set-equip').value.split('\n').forEach(function(l){
+    var p=l.split(','); if(!p[0]||!p[0].trim()||!p[1]||!p[1].trim())return;
+    var zone=p[0].trim(),it=p[1].trim(),unit=(p[2]||'').trim(),need=/^[YyＹ1]/.test((p[3]||'').trim())?1:0;
+    (zones[zone]=zones[zone]||[]).push([it,unit,need]);
+  });
+  if(!Object.keys(zones).length) return toast('格式有誤，至少需一行「區域,項目,單位,」');
+  api({action:'saveConfig',adminKey:ADMIN_KEY,zones:zones}).then(function(){
+    // 同步更新本地 META
+    META.zones=Object.keys(zones).map(function(z){return {zone:z,items:zones[z].map(function(t){return t[0]})}});
+    META.itemMeta={}; var seen={}; META.equipment=[];
+    Object.keys(zones).forEach(function(z){zones[z].forEach(function(t){if(!META.itemMeta[t[0]])META.itemMeta[t[0]]={unit:t[1],need:!!t[2]};if(!seen[t[0]]){seen[t[0]]=1;META.equipment.push(t[0])}})});
+    // 重建門市端與篩選下拉
+    var fz=$('#f-zone');fz.innerHTML='';fz.appendChild(new Option('全部（直接找項目）',''));META.zones.forEach(function(z){fz.appendChild(new Option(z.zone,z.zone))});fillItems('');
+    var fe=$('#a-fequip');fe.innerHTML='<option value="">全部設備</option>';META.equipment.forEach(function(eq){fe.appendChild(new Option(eq,eq))});
+    toast('已儲存報修項目');
+  }).catch(function(e){toast(e.message)});
 };
 /* ====== LINE ====== */
 function loadLine(){
