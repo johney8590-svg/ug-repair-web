@@ -117,6 +117,11 @@
       <div class="hint" id="f-supervisor">負責督導：—</div>
 
       <div class="row">
+        <div><label class="req">門市聯絡人</label><input id="f-contact" placeholder="現場聯絡人姓名" /></div>
+        <div><label class="req">聯絡電話</label><input id="f-phone" type="tel" inputmode="tel" placeholder="可聯絡到的電話" /></div>
+      </div>
+
+      <div class="row">
         <div><label>區域（先選縮小範圍；不確定可留「全部」直接找項目）</label><select id="f-zone"></select></div>
         <div><label>發生日</label><input type="date" id="f-date" /></div>
       </div>
@@ -360,14 +365,17 @@ $('#f-photos').onchange=function(e){
 /* ====== 送出登記 ====== */
 $('#btn-submit').onclick=function(){
   var store=$('#f-store').value, item=$('#f-equip').value, desc=$('#f-desc').value.trim();
+  var contact=$('#f-contact').value.trim(), phone=$('#f-phone').value.trim();
   if(!store) return toast('請選擇門市');
+  if(!contact) return toast('請填寫門市聯絡人');
+  if(!phone) return toast('請填寫聯絡電話');
   if(!item) return toast('請選擇報修項目');
   var m=META.itemMeta[item], equipNo=$('#f-equipno').value.trim();
   if(m&&m.need&&!equipNo) return toast('「'+item+'」需填寫設備編號');
   if(!desc) return toast('請填寫問題描述');
   this.disabled=true; var btn=this;
   api({action:'create',token:API_TOKEN,store:store,equipment:item,zone:$('#f-zone').value,equipNo:equipNo,
-    occurDate:$('#f-date').value,description:desc,attachments:PHOTOS})
+    contact:contact,phone:phone,occurDate:$('#f-date').value,description:desc,attachments:PHOTOS})
   .then(function(r){
     toast('登記成功！案號 '+r.id+'，已通知督導 '+r.supervisor);
     $('#f-desc').value=''; $('#f-equip').value=''; onItemChange(); PHOTOS=[]; $('#f-photos').value=''; $('#f-preview').innerHTML='';
@@ -421,7 +429,8 @@ function openDetail(c){
   var b=$('#modal-box'); b.innerHTML='';
   b.appendChild(el('h3',null,c.store+'｜'+c.equipment));
   b.appendChild(badge(c.status));
-  var kv=[['案號',c.id],['負責督導',c.supervisor],['區域',c.zone||'-'],['設備編號',c.equipNo||'-'],
+  var kv=[['案號',c.id],['負責督導',c.supervisor],['聯絡人',c.contact||'-'],['電話',c.phone||'-'],
+    ['區域',c.zone||'-'],['設備編號',c.equipNo||'-'],
     ['發生日',c.occurDate],['相關單位',c.handleUnit||'-'],
     ['問題描述',c.description],['處理說明',c.progressNote||'-'],['修繕確認',c.repairConfirm||'-'],
     ['督導結案確認',c.supervisorConfirm||'-'],['結案日',c.closeDate||'-']];
@@ -531,6 +540,7 @@ function openAdminEdit(c){
   var b=$('#modal-box'); b.innerHTML='';
   b.appendChild(el('h3',null,c.store+'｜'+c.equipment));
   b.appendChild(el('div','small','案號 '+c.id+' · 督導 '+(c.supervisor||'-')+(c.zone?' · '+c.zone:'')+(c.equipNo?' · 設備號 '+c.equipNo:'')+' · '+fmtDate(c.createdAt)));
+  if(c.contact||c.phone) b.appendChild(el('div','small','📞 聯絡人 '+(c.contact||'-')+' · '+(c.phone||'-')));
   b.appendChild(el('div','kv')).innerHTML='<span>問題描述</span><span>'+esc(c.description)+'</span>';
 
   b.appendChild(el('label','req','狀態'));
