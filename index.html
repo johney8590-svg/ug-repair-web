@@ -188,9 +188,9 @@
   <section class="page" id="page-setting">
     <div class="card">
       <h2>門市 → 督導 對照</h2>
-      <div class="hint">每行格式：<code>門市,督導</code>。儲存後門市登記會自動帶入督導並推播對應督導群。</div>
-      <textarea id="set-dir" style="min-height:200px;font-family:monospace;font-size:13px"></textarea>
-      <div style="margin-top:10px"><button class="btn sm" id="set-dir-save">儲存對照表</button></div>
+      <div class="hint">每行一家門市，<b>門市</b>與<b>督導</b>之間用 <b>Tab 或逗號</b> 分隔——<b>可直接從 Excel 框選兩欄（門市、督導）複製，整批貼上這裡</b>，再按儲存即可新增。督導留空也可以（之後再補）。</div>
+      <textarea id="set-dir" placeholder="例：&#10;台中大里店&#9;林凱琳 Liisa&#10;新店民權店&#9;呂韋興 Robert" style="min-height:200px;font-family:monospace;font-size:13px"></textarea>
+      <div style="margin-top:10px"><button class="btn sm" id="set-dir-save">儲存對照表</button> <span class="small" id="set-dir-count"></span></div>
     </div>
     <div class="card">
       <h2>報修項目（分區）</h2>
@@ -559,16 +559,33 @@ function esc(s){var d=document.createElement('div');d.textContent=s||'';return d
 
 /* ====== 設定 ====== */
 function loadSettings(){
-  var dir=META.directory; var lines=Object.keys(dir).sort().map(function(k){return k+','+dir[k]});
+  var dir=META.directory; var lines=Object.keys(dir).sort().map(function(k){return k+'\t'+dir[k]});
   $('#set-dir').value=lines.join('\n');
+  $('#set-dir-count').textContent='目前 '+Object.keys(dir).length+' 家門市';
   var rows=[];
   META.zones.forEach(function(z){z.items.forEach(function(it){var m=META.itemMeta[it]||{};
     rows.push(z.zone+','+it+','+(m.unit||'')+','+(m.need?'Y':''))})});
   $('#set-equip').value=rows.join('\n');
 }
 $('#set-dir-save').onclick=function(){
-  var dir={};$('#set-dir').value.split('\n').forEach(function(l){var p=l.split(',');if(p[0]&&p[0].trim()&&p[1])dir[p[0].trim()]=p[1].trim()});
-  api({action:'saveConfig',adminKey:ADMIN_KEY,directory:dir}).then(function(){META.directory=dir;META.stores=Object.keys(dir).sort();toast('已儲存對照表')}).catch(function(e){toast(e.message)});
+  var dir={};
+  $('#set-dir').value.split('\n').forEach(function(l){
+    if(!l.trim())return;
+    var p=l.split(/\t|,/);                       // 支援 Tab（Excel 貼上）或逗號
+    var store=(p[0]||'').replace(/^"|"$/g,'').trim();
+    var sup=(p[1]||'').replace(/^"|"$/g,'').replace(/\s+/g,' ').trim();
+    if(store) dir[store]=sup;                     // 督導留空也收（未指派）
+  });
+  if(!Object.keys(dir).length) return toast('沒有可儲存的門市');
+  api({action:'saveConfig',adminKey:ADMIN_KEY,directory:dir}).then(function(){
+    META.directory=dir;META.stores=Object.keys(dir).sort();
+    META.supervisors=[];Object.keys(dir).forEach(function(k){var s=dir[k];if(s&&META.supervisors.indexOf(s)<0)META.supervisors.push(s)});
+    // 重建門市端與管理端下拉
+    fillStores($('#f-store'));fillStores($('#m-store'),true);
+    var fsu=$('#a-fsuper');fsu.innerHTML='<option value="">全部督導</option>';META.supervisors.forEach(function(s){fsu.appendChild(new Option(s,s))});
+    $('#set-dir-count').textContent='目前 '+Object.keys(dir).length+' 家門市';
+    toast('已儲存：'+Object.keys(dir).length+' 家門市');
+  }).catch(function(e){toast(e.message)});
 };
 $('#set-equip-save').onclick=function(){
   var zones={};
