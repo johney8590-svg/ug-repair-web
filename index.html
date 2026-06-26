@@ -48,6 +48,9 @@
   .case{border:1px solid var(--line);border-radius:6px;padding:12px 14px;margin-bottom:10px;background:#fff;cursor:pointer}
   .case:hover{border-color:var(--leaf)}
   .case .top{display:flex;justify-content:space-between;align-items:center;gap:8px}
+  .case .toolset{display:flex;align-items:center;gap:8px}
+  .carddel{background:none;border:none;cursor:pointer;font-size:15px;line-height:1;padding:2px 6px;border-radius:4px;opacity:.45}
+  .carddel:hover{opacity:1;background:#FBE2E4}
   .case .store{font-weight:600}
   .case .meta{font-size:13px;color:var(--gray);margin-top:4px}
   .case .desc{margin-top:6px;font-size:14px}
@@ -385,7 +388,16 @@ function renderMine(){
 }
 function caseCard(c,admin){
   var d=el('div','case');
-  var top=el('div','top'); top.appendChild(el('span','store',c.store)); top.appendChild(badge(c.status));
+  var top=el('div','top');
+  top.appendChild(el('span','store',c.store));
+  var right=el('div','toolset');
+  right.appendChild(badge(c.status));
+  if(admin){
+    var del=el('button','carddel','🗑');del.title='刪除案件';
+    del.onclick=function(ev){ev.stopPropagation();deleteCase(c)};
+    right.appendChild(del);
+  }
+  top.appendChild(right);
   d.appendChild(top);
   d.appendChild(el('div','meta','【'+c.equipment+'】 督導：'+(c.supervisor||'-')+' · '+fmtDate(c.createdAt)));
   d.appendChild(el('div','desc',c.description));
@@ -395,6 +407,14 @@ function caseCard(c,admin){
   return d;
 }
 function fmtDate(s){if(!s)return'';return String(s).replace('T',' ').slice(0,16)}
+// 刪除案件（清單卡片與編輯視窗共用）
+function deleteCase(c){
+  if(!confirm('確定刪除案件 '+c.id+'（'+c.store+' / '+c.equipment+'）？\n此動作無法復原，照片／影片也會一併刪除。'))return;
+  api({action:'delete',adminKey:ADMIN_KEY,id:c.id})
+  .then(function(){toast('已刪除 '+c.id);closeModal();return api({action:'adminList',adminKey:ADMIN_KEY})})
+  .then(function(r){ADMIN_DATA=r.list;renderAdmin()})
+  .catch(function(e){toast('刪除失敗：'+e.message)});
+}
 
 /* ====== 案件詳情（門市唯讀）====== */
 function openDetail(c){
@@ -543,14 +563,7 @@ function openAdminEdit(c){
   bar.appendChild(save);bar.appendChild(cancel);b.appendChild(bar);
 
   var del=el('button','btn danger sm','刪除此案件');del.style.marginTop='12px';
-  del.onclick=function(){
-    if(!confirm('確定刪除案件 '+c.id+'（'+c.store+'）？此動作無法復原，照片也會一併刪除。'))return;
-    del.disabled=true;
-    api({action:'delete',adminKey:ADMIN_KEY,id:c.id})
-    .then(function(){toast('已刪除 '+c.id);closeModal();return api({action:'adminList',adminKey:ADMIN_KEY})})
-    .then(function(r){ADMIN_DATA=r.list;renderAdmin()})
-    .catch(function(e){toast('刪除失敗：'+e.message);del.disabled=false});
-  };
+  del.onclick=function(){deleteCase(c)};
   b.appendChild(del);
   openModal();
 }
