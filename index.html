@@ -570,9 +570,18 @@ function openAdminEdit(c){
   var cancel=el('button','btn sec','取消');cancel.onclick=closeModal;
   bar.appendChild(save);bar.appendChild(cancel);b.appendChild(bar);
 
-  var del=el('button','btn danger sm','刪除此案件');del.style.marginTop='12px';
+  var bar2=el('div','row');bar2.style.marginTop='12px';
+  var repush=el('button','btn sec sm','🔔 重新推播此案件');
+  repush.onclick=function(){
+    repush.disabled=true;
+    api({action:'repush',adminKey:ADMIN_KEY,id:c.id})
+    .then(function(){toast('已重新推播 '+c.id)})
+    .catch(function(e){toast('重新推播失敗：'+e.message)})
+    .then(function(){repush.disabled=false});
+  };
+  var del=el('button','btn danger sm','刪除此案件');
   del.onclick=function(){deleteCase(c)};
-  b.appendChild(del);
+  bar2.appendChild(repush);bar2.appendChild(del);b.appendChild(bar2);
   openModal();
 }
 function addTA(b,id,label,val){b.appendChild(el('label',null,label));var t=el('textarea');t.id=id;t.value=val||'';b.appendChild(t)}
