@@ -215,10 +215,8 @@
       <div class="hint">使用 LINE 官方帳號 Messaging API。Channel access token 只存於後端 Script Properties，不會出現在本頁原始碼。</div>
       <label>Channel access token（留空＝不變更）</label>
       <input id="ln-token" placeholder="貼上後端會覆寫，已設定則顯示空白" />
-      <label>各督導群組 ID</label>
-      <div id="ln-groups"></div>
-      <label>預設／後備群組 ID（找不到對應督導時用；留空＝廣播全部好友）</label>
-      <input id="ln-fallback" />
+      <label>推播群組 ID（所有通知直接發到這個群組）</label>
+      <input id="ln-fallback" placeholder="Cxxxx…（留空＝廣播全部好友）" />
       <label>案件查看連結（推播訊息附帶）</label>
       <input id="ln-link" placeholder="https://.../?m=管理金鑰" />
       <div class="row" style="margin-top:14px">
@@ -227,7 +225,7 @@
         <button class="btn gray sm" id="ln-cap" style="flex:0 0 auto">擷取的群組/用戶 ID</button>
       </div>
       <div id="ln-capbox" class="hint" style="margin-top:10px"></div>
-      <div class="hint" style="margin-top:14px">取得群組 ID：把官方帳號加進該督導 LINE 群 → 在群裡隨意發一句 → 按上方「擷取的…ID」即可看到 groupId，填入對應督導欄位。</div>
+      <div class="hint" style="margin-top:14px">取得群組 ID：把官方帳號加進 LINE 群 → 在群裡隨意發一句 → 按上方「擷取的…ID」即可看到 groupId，填入上方「推播群組 ID」欄位。</div>
     </div>
   </section>
 </main>
@@ -377,7 +375,7 @@ $('#btn-submit').onclick=function(){
   api({action:'create',token:API_TOKEN,store:store,equipment:item,zone:$('#f-zone').value,equipNo:equipNo,
     contact:contact,phone:phone,occurDate:$('#f-date').value,description:desc,attachments:PHOTOS})
   .then(function(r){
-    toast('登記成功！案號 '+r.id+'，已通知督導 '+r.supervisor);
+    toast('登記成功！案號 '+r.id+'，已推播至 LINE 群組');
     $('#f-desc').value=''; $('#f-equip').value=''; onItemChange(); PHOTOS=[]; $('#f-photos').value=''; $('#f-preview').innerHTML='';
   }).catch(function(e){toast('送出失敗：'+e.message)})
   .then(function(){btn.disabled=false});
@@ -634,18 +632,11 @@ function loadLine(){
   api({action:'getLine',adminKey:ADMIN_KEY}).then(function(r){
     $('#ln-fallback').value=r.fallback||''; $('#ln-link').value=r.link||'';
     $('#ln-token').placeholder=r.tokenSet?'已設定（留空＝不變更）':'尚未設定，請貼上 token';
-    var box=$('#ln-groups');box.innerHTML='';
-    META.supervisors.forEach(function(su){
-      var wrap=el('div');wrap.style.margin='4px 0';
-      var lab=el('span','chip');lab.appendChild(el('b',null,su));
-      var inp=el('input');inp.id='lng-'+su;inp.value=(r.groups&&r.groups[su])||'';inp.placeholder='群組 ID（Cxxxx…）';
-      wrap.appendChild(lab);wrap.appendChild(inp);box.appendChild(wrap);
-    });
   });
 }
 $('#ln-save').onclick=function(){
-  var groups={};META.supervisors.forEach(function(su){var v=$('#lng-'+su).value.trim();if(v)groups[su]=v});
-  var payload={action:'saveLine',adminKey:ADMIN_KEY,groups:groups,fallback:$('#ln-fallback').value.trim(),link:$('#ln-link').value.trim()};
+  // 不再依督導分流，groups 清空 → 後端一律推播到下方群組
+  var payload={action:'saveLine',adminKey:ADMIN_KEY,groups:{},fallback:$('#ln-fallback').value.trim(),link:$('#ln-link').value.trim()};
   if($('#ln-token').value.trim())payload.lineToken=$('#ln-token').value.trim();
   api(payload).then(function(){toast('LINE 設定已儲存');$('#ln-token').value=''}).catch(function(e){toast(e.message)});
 };
