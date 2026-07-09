@@ -58,6 +58,8 @@
   .filters select,.filters input{flex:1;min-width:120px}
   .thumb{display:inline-block;width:64px;height:64px;object-fit:cover;border-radius:4px;border:1px solid var(--line);margin:4px 4px 0 0}
   img.thumb{cursor:zoom-in}
+  .photo-item{display:inline-flex;flex-direction:column;align-items:center;margin:4px 6px 0 0;vertical-align:top}
+  .photo-zoom{font-size:12px;color:var(--green);margin-top:2px;cursor:pointer;text-decoration:underline}
   .lightbox{position:fixed;inset:0;background:rgba(0,0,0,.9);display:none;align-items:center;justify-content:center;z-index:60;padding:16px}
   .lightbox.open{display:flex}
   .lightbox img{max-width:100%;max-height:100%;object-fit:contain;border-radius:4px}
@@ -248,7 +250,7 @@ var API_BASE = 'https://script.google.com/macros/s/AKfycbwF7YapsErRssEKCC_Nkcxdl
 var API_TOKEN = 'rp_8sK2mVq7Xz4Pd';      // 門市端共用 token，需與後端 Script Properties API_TOKEN 一致
 var ADMIN_GATE_KEY = 'UGfix-7Q2x9';      // 網址 ?m=此值 才顯示管理分頁（僅降低曝光，真正驗證在後端密碼）
 var LIFF_ID = '';                        // 若要當 LIFF 用，填 LINE LIFF ID（選填）
-var VERSION = 'v1.0';
+var VERSION = 'v1.1';
 
 /* ====== 狀態 ====== */
 var META = null, ADMIN_KEY = '', ADMIN_DATA = [];
@@ -461,9 +463,12 @@ function appendPhotos(b,c){
         var link=el('a','btn sec sm','▶ 播放影片');link.href=a.dataUrl;link.target='_blank';
         link.style.display='inline-block';link.style.margin='4px 6px 0 0';b.appendChild(link);
       } else {
+        var wrap=el('span','photo-item');
         var img=el('img','thumb');img.src=a.dataUrl;img.title='點擊放大';
         img.onclick=function(){openLightbox(this.src)};
-        b.appendChild(img);
+        var zoom=el('a','photo-zoom','🔍 放大');zoom.href='javascript:void(0)';
+        zoom.onclick=(function(u){return function(){openLightbox(u)}})(a.dataUrl);
+        wrap.appendChild(img);wrap.appendChild(zoom);b.appendChild(wrap);
       }
     });
   }).catch(function(){});
