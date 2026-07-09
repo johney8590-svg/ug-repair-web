@@ -224,6 +224,7 @@
         <button class="btn sec sm" id="ln-test" style="flex:0 0 auto">發送測試訊息</button>
         <button class="btn gray sm" id="ln-cap" style="flex:0 0 auto">擷取的群組/用戶 ID</button>
       </div>
+      <div id="ln-last" class="hint" style="margin-top:10px"></div>
       <div id="ln-capbox" class="hint" style="margin-top:10px"></div>
       <div class="hint" style="margin-top:14px">取得群組 ID：把官方帳號加進 LINE 群 → 在群裡隨意發一句 → 按上方「擷取的…ID」即可看到 groupId，填入上方「推播群組 ID」欄位。</div>
     </div>
@@ -641,6 +642,10 @@ function loadLine(){
   api({action:'getLine',adminKey:ADMIN_KEY}).then(function(r){
     $('#ln-fallback').value=r.fallback||''; $('#ln-link').value=r.link||'';
     $('#ln-token').placeholder=r.tokenSet?'已設定（留空＝不變更）':'尚未設定，請貼上 token';
+    if(r.lastPush){
+      var lp=r.lastPush;
+      $('#ln-last').textContent='上次推播：'+fmtDate(lp.at)+'　HTTP '+lp.code+(lp.code===200?' ✅':' ❌')+'　對象 '+(lp.to||'(廣播)')+(lp.note?'（'+lp.note+'）':'');
+    }
   });
 }
 $('#ln-save').onclick=function(){
