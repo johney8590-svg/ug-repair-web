@@ -57,6 +57,11 @@
   .filters{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px}
   .filters select,.filters input{flex:1;min-width:120px}
   .thumb{display:inline-block;width:64px;height:64px;object-fit:cover;border-radius:4px;border:1px solid var(--line);margin:4px 4px 0 0}
+  img.thumb{cursor:zoom-in}
+  .lightbox{position:fixed;inset:0;background:rgba(0,0,0,.9);display:none;align-items:center;justify-content:center;z-index:60;padding:16px}
+  .lightbox.open{display:flex}
+  .lightbox img{max-width:100%;max-height:100%;object-fit:contain;border-radius:4px}
+  .lightbox .lbclose{position:absolute;top:12px;right:16px;color:#fff;font-size:30px;line-height:1;background:none;border:none;cursor:pointer;padding:4px 10px}
   .modal{position:fixed;inset:0;background:rgba(0,0,0,.4);display:none;align-items:flex-start;justify-content:center;z-index:50;overflow:auto;padding:24px 12px}
   .modal.open{display:flex}
   .modal .box{background:#fff;border-radius:8px;max-width:560px;width:100%;padding:20px}
@@ -233,6 +238,7 @@
 
 <!-- 案件詳情 / 編輯 -->
 <div class="modal" id="modal"><div class="box" id="modal-box"></div></div>
+<div class="lightbox" id="lightbox"><button class="lbclose" id="lbclose">×</button><img id="lbimg" alt="放大照片" /></div>
 <div class="toast" id="toast"></div>
 
 <script>
@@ -455,7 +461,9 @@ function appendPhotos(b,c){
         var link=el('a','btn sec sm','▶ 播放影片');link.href=a.dataUrl;link.target='_blank';
         link.style.display='inline-block';link.style.margin='4px 6px 0 0';b.appendChild(link);
       } else {
-        var img=el('img','thumb');img.src=a.dataUrl;b.appendChild(img);
+        var img=el('img','thumb');img.src=a.dataUrl;img.title='點擊放大';
+        img.onclick=function(){openLightbox(this.src)};
+        b.appendChild(img);
       }
     });
   }).catch(function(){});
@@ -668,6 +676,12 @@ $('#ln-cap').onclick=function(){
 function openModal(){$('#modal').classList.add('open')}
 function closeModal(){$('#modal').classList.remove('open')}
 $('#modal').onclick=function(e){if(e.target===this)closeModal()};
+
+/* ====== 照片放大燈箱 ====== */
+function openLightbox(src){$('#lbimg').src=src;$('#lightbox').classList.add('open')}
+function closeLightbox(){$('#lightbox').classList.remove('open');$('#lbimg').src=''}
+$('#lightbox').onclick=function(e){if(e.target!==$('#lbimg'))closeLightbox()};
+$('#lbclose').onclick=closeLightbox;
 
 init();
 </script>
