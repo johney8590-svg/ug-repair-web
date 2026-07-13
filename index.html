@@ -60,10 +60,15 @@
   img.thumb{cursor:zoom-in}
   .photo-item{display:inline-flex;flex-direction:column;align-items:center;margin:4px 6px 0 0;vertical-align:top}
   .photo-zoom{font-size:12px;color:var(--green);margin-top:2px;cursor:pointer;text-decoration:underline}
+  .copybox{white-space:pre-wrap;background:#F7F6F3;border:1px solid var(--line);border-radius:6px;padding:12px 14px;font-size:14px;line-height:1.7;margin:6px 0;-webkit-user-select:all;user-select:all}
   .lightbox{position:fixed;inset:0;background:rgba(0,0,0,.9);display:none;align-items:center;justify-content:center;z-index:60;padding:16px}
   .lightbox.open{display:flex}
-  .lightbox img{max-width:100%;max-height:100%;object-fit:contain;border-radius:4px}
-  .lightbox .lbclose{position:absolute;top:12px;right:16px;color:#fff;font-size:30px;line-height:1;background:none;border:none;cursor:pointer;padding:4px 10px}
+  .lightbox img{max-width:100%;max-height:calc(100% - 60px);object-fit:contain;border-radius:4px}
+  .lightbox .lbclose{position:absolute;top:12px;right:16px;color:#fff;font-size:30px;line-height:1;background:none;border:none;cursor:pointer;padding:4px 10px;z-index:2}
+  .lbnav{position:absolute;top:50%;transform:translateY(-50%);color:#fff;font-size:44px;line-height:1;background:rgba(0,0,0,.3);border:none;cursor:pointer;padding:8px 16px;border-radius:8px;z-index:2}
+  .lbprev{left:8px}.lbnext{right:8px}
+  .lbbar{position:absolute;bottom:14px;left:0;right:0;display:flex;align-items:center;justify-content:center;gap:16px;color:#fff;font-size:14px}
+  .lbdlbtn{color:#fff;background:var(--green);padding:8px 16px;border-radius:6px;text-decoration:none;font-weight:600;cursor:pointer}
   .modal{position:fixed;inset:0;background:rgba(0,0,0,.4);display:none;align-items:flex-start;justify-content:center;z-index:50;overflow:auto;padding:24px 12px}
   .modal.open{display:flex}
   .modal .box{background:#fff;border-radius:8px;max-width:560px;width:100%;padding:20px}
@@ -240,7 +245,13 @@
 
 <!-- 案件詳情 / 編輯 -->
 <div class="modal" id="modal"><div class="box" id="modal-box"></div></div>
-<div class="lightbox" id="lightbox"><button class="lbclose" id="lbclose">×</button><img id="lbimg" alt="放大照片" /></div>
+<div class="lightbox" id="lightbox">
+  <button class="lbclose" id="lbclose">×</button>
+  <button class="lbnav lbprev" id="lbprev">‹</button>
+  <img id="lbimg" alt="放大照片" />
+  <button class="lbnav lbnext" id="lbnext">›</button>
+  <div class="lbbar"><span id="lbcount"></span><a id="lbdl" class="lbdlbtn">⬇ 下載此照片</a></div>
+</div>
 <div class="toast" id="toast"></div>
 
 <script>
@@ -250,7 +261,7 @@ var API_BASE = 'https://script.google.com/macros/s/AKfycbwF7YapsErRssEKCC_Nkcxdl
 var API_TOKEN = 'rp_8sK2mVq7Xz4Pd';      // 門市端共用 token，需與後端 Script Properties API_TOKEN 一致
 var ADMIN_GATE_KEY = 'UGfix-7Q2x9';      // 網址 ?m=此值 才顯示管理分頁（僅降低曝光，真正驗證在後端密碼）
 var LIFF_ID = '';                        // 若要當 LIFF 用，填 LINE LIFF ID（選填）
-var VERSION = 'v1.1';
+var VERSION = 'v1.2';
 
 /* ====== 狀態 ====== */
 var META = null, ADMIN_KEY = '', ADMIN_DATA = [];
@@ -458,16 +469,18 @@ function appendPhotos(b,c){
   api({action:'getAttachments',token:API_TOKEN,repairId:c.id}).then(function(r){
     if(!r.attachments.length)return;
     b.appendChild(el('label',null,'照片／影片'));
+    var gallery=[];
     r.attachments.forEach(function(a){
       if(a.kind==='video'){
         var link=el('a','btn sec sm','▶ 播放影片');link.href=a.dataUrl;link.target='_blank';
         link.style.display='inline-block';link.style.margin='4px 6px 0 0';b.appendChild(link);
       } else {
+        var idx=gallery.length; gallery.push(a.dataUrl);
         var wrap=el('span','photo-item');
         var img=el('img','thumb');img.src=a.dataUrl;img.title='點擊放大';
-        img.onclick=function(){openLightbox(this.src)};
+        img.onclick=(function(i){return function(){openLightbox(gallery,i)}})(idx);
         var zoom=el('a','photo-zoom','🔍 放大');zoom.href='javascript:void(0)';
-        zoom.onclick=(function(u){return function(){openLightbox(u)}})(a.dataUrl);
+        zoom.onclick=(function(i){return function(){openLightbox(gallery,i)}})(idx);
         wrap.appendChild(img);wrap.appendChild(zoom);b.appendChild(wrap);
       }
     });
@@ -551,9 +564,12 @@ function closeDays(c){
 function openAdminEdit(c){
   var b=$('#modal-box'); b.innerHTML='';
   b.appendChild(el('h3',null,c.store+'｜'+c.equipment));
-  b.appendChild(el('div','small','案號 '+c.id+' · 督導 '+(c.supervisor||'-')+(c.zone?' · '+c.zone:'')+(c.equipNo?' · 設備號 '+c.equipNo:'')+' · '+fmtDate(c.createdAt)));
-  if(c.contact||c.phone) b.appendChild(el('div','small','📞 聯絡人 '+(c.contact||'-')+' · '+(c.phone||'-')));
-  b.appendChild(el('div','kv')).innerHTML='<span>問題描述</span><span>'+esc(c.description)+'</span>';
+  // 逐列資訊（方便複製貼到 LINE 與廠商溝通）
+  var info=el('div','copybox');info.id='case-copy';info.textContent=caseCopyText_(c);
+  b.appendChild(info);
+  var copyBtn=el('button','btn sec sm','📋 複製案件資訊');copyBtn.style.marginBottom='6px';
+  copyBtn.onclick=function(){copyText_(caseCopyText_(c))};
+  b.appendChild(copyBtn);
 
   b.appendChild(el('label','req','狀態'));
   var sel=el('select');sel.id='e-status';META.statuses.forEach(function(s){var o=new Option(s,s);if(s===c.status)o.selected=true;sel.appendChild(o)});b.appendChild(sel);
@@ -600,6 +616,29 @@ function openAdminEdit(c){
 }
 function addTA(b,id,label,val){b.appendChild(el('label',null,label));var t=el('textarea');t.id=id;t.value=val||'';b.appendChild(t)}
 function esc(s){var d=document.createElement('div');d.textContent=s||'';return d.innerHTML}
+// 案件資訊組成逐列文字（複製貼到 LINE 與廠商溝通用）
+function caseCopyText_(c){
+  var rows=[
+    ['案號',c.id],['門市',c.store],['督導',c.supervisor||'-'],
+    ['報修項目',c.equipment],['設備編號',c.equipNo||'-'],['區域',c.zone||'-'],
+    ['相關單位',c.handleUnit||'-'],['聯絡人',c.contact||'-'],['聯絡電話',c.phone||'-'],
+    ['發生日',c.occurDate||'-'],['登記時間',fmtDate(c.createdAt)],['目前狀態',c.status],
+    ['問題描述',c.description||'-']
+  ];
+  if(c.progressNote) rows.push(['處理說明',c.progressNote]);
+  return rows.map(function(r){return r[0]+'：'+String(r[1]==null?'':r[1])}).join('\n');
+}
+function copyText_(text){
+  if(navigator.clipboard&&navigator.clipboard.writeText){
+    navigator.clipboard.writeText(text).then(function(){toast('已複製，可直接貼到 LINE')},function(){fallbackCopy_(text)});
+  } else fallbackCopy_(text);
+}
+function fallbackCopy_(text){
+  var ta=document.createElement('textarea');ta.value=text;ta.style.position='fixed';ta.style.opacity='0';
+  document.body.appendChild(ta);ta.focus();ta.select();
+  try{document.execCommand('copy');toast('已複製，可直接貼到 LINE')}catch(e){toast('請長按上方框選文字複製')}
+  document.body.removeChild(ta);
+}
 
 /* ====== 設定 ====== */
 function loadSettings(){
@@ -682,11 +721,50 @@ function openModal(){$('#modal').classList.add('open')}
 function closeModal(){$('#modal').classList.remove('open')}
 $('#modal').onclick=function(e){if(e.target===this)closeModal()};
 
-/* ====== 照片放大燈箱 ====== */
-function openLightbox(src){$('#lbimg').src=src;$('#lightbox').classList.add('open')}
+/* ====== 照片放大燈箱（可左右切換、下載）====== */
+var LB_LIST=[], LB_I=0;
+function openLightbox(list,i){
+  LB_LIST=(typeof list==='string')?[list]:(list||[]);
+  LB_I=i||0; showLb();
+  $('#lightbox').classList.add('open');
+}
+function showLb(){
+  if(!LB_LIST.length)return;
+  if(LB_I<0)LB_I=LB_LIST.length-1; if(LB_I>=LB_LIST.length)LB_I=0;
+  var src=LB_LIST[LB_I];
+  $('#lbimg').src=src;
+  $('#lbcount').textContent=(LB_I+1)+' / '+LB_LIST.length;
+  var multi=LB_LIST.length>1;
+  $('#lbprev').style.display=multi?'block':'none';
+  $('#lbnext').style.display=multi?'block':'none';
+  $('#lbdl').href=downloadUrl_(src);
+  $('#lbdl').setAttribute('download','修繕照片-'+(LB_I+1)+'.jpg');
+  $('#lbdl').target='_blank';
+}
+function lbNext(){LB_I++;showLb()}
+function lbPrev(){LB_I--;showLb()}
 function closeLightbox(){$('#lightbox').classList.remove('open');$('#lbimg').src=''}
-$('#lightbox').onclick=function(e){if(e.target!==$('#lbimg'))closeLightbox()};
+// Drive 縮圖網址 → 原檔下載網址；base64 直接回傳
+function downloadUrl_(src){
+  src=String(src||'');
+  if(src.indexOf('data:')===0)return src;
+  var m=/[?&]id=([^&]+)/.exec(src)||/\/d\/([^\/]+)/.exec(src);
+  return m?('https://drive.google.com/uc?export=download&id='+m[1]):src;
+}
+$('#lightbox').onclick=function(e){
+  var t=e.target;
+  if(t===$('#lbimg')||t===$('#lbprev')||t===$('#lbnext')||t===$('#lbdl'))return;
+  closeLightbox();
+};
 $('#lbclose').onclick=closeLightbox;
+$('#lbprev').onclick=function(e){e.stopPropagation();lbPrev()};
+$('#lbnext').onclick=function(e){e.stopPropagation();lbNext()};
+document.addEventListener('keydown',function(e){
+  if(!$('#lightbox').classList.contains('open'))return;
+  if(e.key==='ArrowRight')lbNext();
+  else if(e.key==='ArrowLeft')lbPrev();
+  else if(e.key==='Escape')closeLightbox();
+});
 
 init();
 </script>
