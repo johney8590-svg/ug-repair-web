@@ -69,6 +69,12 @@
   .lbprev{left:8px}.lbnext{right:8px}
   .lbbar{position:absolute;bottom:14px;left:0;right:0;display:flex;align-items:center;justify-content:center;gap:16px;color:#fff;font-size:14px}
   .lbdlbtn{color:#fff;background:var(--green);padding:8px 16px;border-radius:6px;text-decoration:none;font-weight:600;cursor:pointer}
+  .loading{position:fixed;inset:0;background:rgba(0,0,0,.45);display:none;align-items:center;justify-content:center;z-index:70}
+  .loading.open{display:flex}
+  .loadbox{background:#fff;border-radius:10px;padding:24px 30px;text-align:center;min-width:180px;box-shadow:0 8px 30px rgba(0,0,0,.25)}
+  .spinner{width:38px;height:38px;border:4px solid #e8e8e8;border-top-color:var(--green);border-radius:50%;margin:0 auto 12px;animation:spin .8s linear infinite}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  #loadmsg{font-size:14px;color:var(--ink)}
   .modal{position:fixed;inset:0;background:rgba(0,0,0,.4);display:none;align-items:flex-start;justify-content:center;z-index:50;overflow:auto;padding:24px 12px}
   .modal.open{display:flex}
   .modal .box{background:#fff;border-radius:8px;max-width:560px;width:100%;padding:20px}
@@ -257,6 +263,7 @@
 
 <!-- 案件詳情 / 編輯 -->
 <div class="modal" id="modal"><div class="box" id="modal-box"></div></div>
+<div class="loading" id="loading"><div class="loadbox"><div class="spinner"></div><div id="loadmsg">處理中，請稍候…</div></div></div>
 <div class="lightbox" id="lightbox">
   <button class="lbclose" id="lbclose">×</button>
   <button class="lbnav lbprev" id="lbprev">‹</button>
@@ -273,7 +280,7 @@ var API_BASE = 'https://script.google.com/macros/s/AKfycbwF7YapsErRssEKCC_Nkcxdl
 var API_TOKEN = 'rp_8sK2mVq7Xz4Pd';      // 門市端共用 token，需與後端 Script Properties API_TOKEN 一致
 var ADMIN_GATE_KEY = 'UGfix-7Q2x9';      // 網址 ?m=此值 才顯示管理分頁（僅降低曝光，真正驗證在後端密碼）
 var LIFF_ID = '';                        // 若要當 LIFF 用，填 LINE LIFF ID（選填）
-var VERSION = 'v1.5';
+var VERSION = 'v1.6';
 
 /* ====== 狀態 ====== */
 var META = null, ADMIN_KEY = '', ADMIN_DATA = [];
@@ -283,6 +290,8 @@ var STATUS_CLASS = {'待處理':'s0','處理中':'s1','更換負責單位':'s4',
 function $(s){return document.querySelector(s)}
 function el(tag,cls,txt){var e=document.createElement(tag);if(cls)e.className=cls;if(txt!=null)e.textContent=txt;return e}
 function toast(m){var t=$('#toast');t.textContent=m;t.classList.add('show');setTimeout(function(){t.classList.remove('show')},2200)}
+function showLoading(msg){$('#loadmsg').textContent=msg||'處理中，請稍候…';$('#loading').classList.add('open')}
+function hideLoading(){$('#loading').classList.remove('open')}
 function badge(s){var b=el('span','badge '+(STATUS_CLASS[s]||'s0'),s);return b}
 function api(payload){
   return fetch(API_BASE,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify(payload)})
@@ -411,15 +420,27 @@ $('#btn-submit').onclick=function(){
   var m=META.itemMeta[item], equipNo=$('#f-equipno').value.trim();
   if(m&&m.need&&!equipNo) return toast('「'+item+'」需填寫設備編號');
   if(!desc) return toast('請填寫問題描述');
-  this.disabled=true; var btn=this;
+  if(SUBMIT_COOLDOWN) return toast('剛送出過，請稍候再送（避免重複送件）');
+  var btn=this; btn.disabled=true; showLoading('案件送出中，請稍候…');
   api({action:'create',token:API_TOKEN,store:store,equipment:item,zone:$('#f-zone').value,equipNo:equipNo,
     contact:contact,phone:phone,occurDate:$('#f-date').value,description:desc,attachments:PHOTOS})
   .then(function(r){
+    hideLoading();
     toast('登記成功！案號 '+r.id+(r.unitEmailed?'，已 Email 通知 '+r.unitTo:''));
     $('#f-desc').value=''; $('#f-equip').value=''; onItemChange(); PHOTOS=[]; $('#f-photos').value=''; $('#f-preview').innerHTML='';
-  }).catch(function(e){toast('送出失敗：'+e.message)})
-  .then(function(){btn.disabled=false});
+    startSubmitCooldown(btn);   // 送出成功 → 10 秒內不可重複送
+  }).catch(function(e){hideLoading();toast('送出失敗：'+e.message);btn.disabled=false});
 };
+// 10 秒重複送件保護（倒數顯示）
+var SUBMIT_COOLDOWN=false, SUBMIT_LABEL=($('#btn-submit')?$('#btn-submit').textContent:'送出登記');
+function startSubmitCooldown(btn){
+  SUBMIT_COOLDOWN=true; var n=10; btn.disabled=true; btn.textContent='已送出（'+n+' 秒）';
+  var t=setInterval(function(){
+    n--;
+    if(n<=0){clearInterval(t);SUBMIT_COOLDOWN=false;btn.disabled=false;btn.textContent=SUBMIT_LABEL;}
+    else btn.textContent='已送出（'+n+' 秒）';
+  },1000);
+}
 
 /* ====== 我的案件 ====== */
 $('#m-store').onchange=renderMine;
@@ -607,12 +628,13 @@ function openAdminEdit(c){
   var bar=el('div','row');bar.style.marginTop='16px';
   var save=el('button','btn','儲存並通知督導');
   save.onclick=function(){
-    save.disabled=true;
+    save.disabled=true; showLoading('儲存並通知中，請稍候…');
     api({action:'update',adminKey:ADMIN_KEY,id:c.id,actor:'後勤',
       status:$('#e-status').value,handleUnit:$('#e-unit').value,
       progressNote:$('#e-note').value,repairConfirm:$('#e-repair').value,
       supervisorConfirm:$('#e-sconf').value,robertNote:$('#e-robert').value})
     .then(function(r){
+      hideLoading();
       var msg='已儲存';
       if(r.unitEmailed) msg='已儲存，已 Email 通知單位（'+r.unitTo+'）';
       else if(r.emailed) msg='已儲存，已 Email 通知督導（'+r.emailTo+'）';
@@ -621,7 +643,7 @@ function openAdminEdit(c){
       toast(msg);closeModal();
       return api({action:'adminList',adminKey:ADMIN_KEY})})
     .then(function(r){ADMIN_DATA=r.list;renderAdmin()})
-    .catch(function(e){toast('儲存失敗：'+e.message);save.disabled=false});
+    .catch(function(e){hideLoading();toast('儲存失敗：'+e.message);save.disabled=false});
   };
   var cancel=el('button','btn sec','取消');cancel.onclick=closeModal;
   bar.appendChild(save);bar.appendChild(cancel);b.appendChild(bar);
