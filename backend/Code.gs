@@ -603,11 +603,14 @@ function forceAuthDrive() {
   Logger.log('drive ok, folder=' + fo.getId() + ' probe=' + f.getId());
   f.setTrashed(true);
 }
-// 強制逼出寄信授權（裸呼叫，勿包 try/catch）→ 在編輯器執行一次，會寄一封測試信給自己
+// 強制逼出寄信授權（裸呼叫，勿包 try/catch）→ 在編輯器執行一次
+// 會把測試信寄到你在網頁「督導 Email 通知」設定的第一個信箱（先設定再執行本函式）
 function forceAuthMail() {
-  var me = Session.getActiveUser().getEmail();
-  MailApp.sendEmail(me, 'UG修繕 Email 授權測試', '收到這封信代表 Email 通知功能已授權完成，可正常使用。');
-  Logger.log('mail sent to ' + me);
+  var emails = supervisorEmails_(), to = '';
+  Object.keys(emails).forEach(function (k) { if (!to && emails[k]) to = emails[k]; });
+  if (!to) throw new Error('請先到網頁「設定 → 督導 Email 通知」填一個信箱並儲存，再執行本函式');
+  MailApp.sendEmail(to, 'UG修繕 Email 授權測試', '收到這封信代表 Email 通知功能已授權完成，可正常使用。');
+  Logger.log('test mail sent to ' + to);
 }
 // 強制逼出對外連線授權（裸呼叫，勿包 try/catch）→ 在編輯器執行
 function forceAuthLine() {
