@@ -273,7 +273,7 @@ var API_BASE = 'https://script.google.com/macros/s/AKfycbwF7YapsErRssEKCC_Nkcxdl
 var API_TOKEN = 'rp_8sK2mVq7Xz4Pd';      // 門市端共用 token，需與後端 Script Properties API_TOKEN 一致
 var ADMIN_GATE_KEY = 'UGfix-7Q2x9';      // 網址 ?m=此值 才顯示管理分頁（僅降低曝光，真正驗證在後端密碼）
 var LIFF_ID = '';                        // 若要當 LIFF 用，填 LINE LIFF ID（選填）
-var VERSION = 'v1.4';
+var VERSION = 'v1.5';
 
 /* ====== 狀態 ====== */
 var META = null, ADMIN_KEY = '', ADMIN_DATA = [];
@@ -302,10 +302,11 @@ document.querySelectorAll('nav button').forEach(function(b){
 });
 
 /* ====== 初始化 ====== */
-var IS_ADMIN=false;
+var IS_ADMIN=false, PENDING_CASE='';
 function init(){
   $('#ver').textContent=VERSION;
   var q=new URLSearchParams(location.search);
+  PENDING_CASE=q.get('case')||'';
   if(q.get('m')===ADMIN_GATE_KEY){
     IS_ADMIN=true; ADMIN_KEY=q.get('m');
     document.querySelectorAll('.admin-only').forEach(function(x){x.style.display='block'});
@@ -336,8 +337,15 @@ function enterAdmin(){
     document.querySelectorAll('.page').forEach(function(p){p.classList.remove('active')});
     $('#page-admin').classList.add('active'); }
   $('#admin-body').style.display='block';
-  api({action:'adminList',adminKey:ADMIN_KEY}).then(function(r){ADMIN_DATA=r.list;renderAdmin();loadSettings();loadEmails();loadUnitEmails();loadLine();})
+  api({action:'adminList',adminKey:ADMIN_KEY}).then(function(r){ADMIN_DATA=r.list;renderAdmin();loadSettings();loadEmails();loadUnitEmails();loadLine();openPendingCase();})
     .catch(function(e){toast('管理載入失敗：'+e.message)});
+}
+// Email 連結 ?case=案號 → 自動打開該案件的管理視窗
+function openPendingCase(){
+  if(!PENDING_CASE) return;
+  var id=PENDING_CASE; PENDING_CASE='';
+  var c=ADMIN_DATA.filter(function(x){return String(x.id)===String(id)})[0];
+  if(c) openAdminEdit(c); else toast('找不到案件 '+id);
 }
 function fillStores(sel,withBlank){
   sel.innerHTML='';

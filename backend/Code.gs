@@ -549,7 +549,7 @@ function emailNotify_(o, changes) {
   var email = String(emailFor_(o.supervisor) || '').trim();
   if (!email) return { emailed: false, reason: '督導「' + (o.supervisor || '未指派') + '」未設定 Email' };
   var subject = '【UG修繕｜進度更新】' + o.store + '｜' + o.equipment + '（' + o.status + '）';
-  MailApp.sendEmail({ to: email, subject: subject, body: emailBody_(o, changes) });
+  MailApp.sendEmail({ to: email, subject: subject, body: emailBody_(o, changes), htmlBody: emailBodyHtml_(o, changes) });
   return { emailed: true, to: email };
 }
 // ── 相關單位（部門）Email ──
@@ -585,9 +585,17 @@ function unitEmailNotify_(o, headline) {
   var to = String(unitEmailFor_(o.handleUnit) || '').trim();
   if (!to) return { unitEmailed: false, unitReason: '單位「' + (o.handleUnit || '未指定') + '」未設定 Email' };
   var subject = '【UG修繕｜' + headline + '】' + o.store + '｜' + o.equipment + '（' + o.handleUnit + '）';
-  MailApp.sendEmail({ to: to, subject: subject, body: emailBody_(o, [['通知事由', headline]]) });
+  var chg = [['通知事由', headline]];
+  MailApp.sendEmail({ to: to, subject: subject, body: emailBody_(o, chg), htmlBody: emailBodyHtml_(o, chg) });
   return { unitEmailed: true, unitTo: to };
 }
+// 該案件在「案件管理」的深連結（點了會自動打開該案件）
+function caseLink_(o) {
+  var base = prop_('LINE_LINK') || '';
+  if (!base) return '';
+  return base + (base.indexOf('?') >= 0 ? '&' : '?') + 'case=' + encodeURIComponent(o.id);
+}
+// 純文字版（HTML 不支援時的後備）
 function emailBody_(o, changes) {
   var L = [
     '修繕案件有進度更新，內容如下：', '',
@@ -603,10 +611,32 @@ function emailBody_(o, changes) {
   ];
   L.push('── 本次更新 ──');
   changes.forEach(function (c) { L.push('【' + c[0] + '】' + c[1]); });
-  var link = prop_('LINE_LINK') || '';
-  if (link) { L.push(''); L.push('查看案件：' + link); }
+  var link = caseLink_(o);
+  if (link) { L.push(''); L.push('開啟此案件：' + link); }
   L.push(''); L.push('（本信由 UG 門市修繕進度系統自動發送）');
   return L.join('\n');
+}
+// HTML 版（網址／按鈕可直接點）
+function emailBodyHtml_(o, changes) {
+  function esc(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
+  var rows = [
+    ['案號', o.id], ['門市', o.store], ['督導', o.supervisor || '-'],
+    ['報修項目', o.equipment], ['設備編號', o.equipNo || '-'], ['相關單位', o.handleUnit || '-'],
+    ['聯絡', (o.contact || '-') + (o.phone ? '　' + o.phone : '')], ['目前狀態', o.status], ['問題描述', o.description || '-']
+  ];
+  var h = '<div style="font-family:sans-serif;font-size:14px;line-height:1.7;color:#2c2c2c">';
+  h += '<p>修繕案件有更新，內容如下：</p><table style="border-collapse:collapse">';
+  rows.forEach(function (r) { h += '<tr><td style="padding:2px 12px 2px 0;color:#6b6b6b;white-space:nowrap;vertical-align:top">' + esc(r[0]) + '</td><td style="padding:2px 0">' + esc(r[1]) + '</td></tr>'; });
+  h += '</table>';
+  if (changes && changes.length) {
+    h += '<p style="margin:12px 0 4px"><b>── 本次更新 ──</b></p><ul style="margin:0;padding-left:18px">';
+    changes.forEach(function (c) { h += '<li><b>' + esc(c[0]) + '</b>：' + esc(c[1]) + '</li>'; });
+    h += '</ul>';
+  }
+  var link = caseLink_(o);
+  if (link) h += '<p style="margin-top:18px"><a href="' + link + '" style="display:inline-block;background:#2e7d5b;color:#fff;padding:10px 20px;border-radius:6px;text-decoration:none;font-weight:600">👉 開啟此案件</a></p>';
+  h += '<p style="color:#999;font-size:12px;margin-top:16px">（本信由 UG 門市修繕進度系統自動發送）</p></div>';
+  return h;
 }
 // ─────────────────────── 試算表 / 工具 ───────────────────────
 function ss_() {
