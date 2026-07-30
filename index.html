@@ -219,6 +219,12 @@
       <div style="margin-top:10px"><button class="btn sm" id="em-save">儲存督導 Email</button></div>
     </div>
     <div class="card">
+      <h2>單位（部門）Email 通知</h2>
+      <div class="hint"><b>新增案件</b>時會依「相關單位」寄 Email 給對應部門；<b>更換負責單位</b>時會通知新接手的部門。多位收件人請用<b>逗號</b>分隔（留空＝該單位不寄信）。</div>
+      <div id="ue-list"></div>
+      <div style="margin-top:10px"><button class="btn sm" id="ue-save">儲存單位 Email</button></div>
+    </div>
+    <div class="card">
       <h2>報修項目（分區）</h2>
       <div class="hint">每行格式：<code>區域,報修項目,報修單位,設備編號</code>。最後一欄填 <code>Y</code> 代表該項目門市登記時<b>強制要填設備編號</b>（留空＝不用）。報修單位會在門市選項目時自動帶入。</div>
       <textarea id="set-equip" style="min-height:260px;font-family:monospace;font-size:13px"></textarea>
@@ -267,7 +273,7 @@ var API_BASE = 'https://script.google.com/macros/s/AKfycbwF7YapsErRssEKCC_Nkcxdl
 var API_TOKEN = 'rp_8sK2mVq7Xz4Pd';      // 門市端共用 token，需與後端 Script Properties API_TOKEN 一致
 var ADMIN_GATE_KEY = 'UGfix-7Q2x9';      // 網址 ?m=此值 才顯示管理分頁（僅降低曝光，真正驗證在後端密碼）
 var LIFF_ID = '';                        // 若要當 LIFF 用，填 LINE LIFF ID（選填）
-var VERSION = 'v1.3';
+var VERSION = 'v1.4';
 
 /* ====== 狀態 ====== */
 var META = null, ADMIN_KEY = '', ADMIN_DATA = [];
@@ -330,7 +336,7 @@ function enterAdmin(){
     document.querySelectorAll('.page').forEach(function(p){p.classList.remove('active')});
     $('#page-admin').classList.add('active'); }
   $('#admin-body').style.display='block';
-  api({action:'adminList',adminKey:ADMIN_KEY}).then(function(r){ADMIN_DATA=r.list;renderAdmin();loadSettings();loadEmails();loadLine();})
+  api({action:'adminList',adminKey:ADMIN_KEY}).then(function(r){ADMIN_DATA=r.list;renderAdmin();loadSettings();loadEmails();loadUnitEmails();loadLine();})
     .catch(function(e){toast('管理載入失敗：'+e.message)});
 }
 function fillStores(sel,withBlank){
@@ -401,7 +407,7 @@ $('#btn-submit').onclick=function(){
   api({action:'create',token:API_TOKEN,store:store,equipment:item,zone:$('#f-zone').value,equipNo:equipNo,
     contact:contact,phone:phone,occurDate:$('#f-date').value,description:desc,attachments:PHOTOS})
   .then(function(r){
-    toast('登記成功！案號 '+r.id+'，已推播至 LINE 群組');
+    toast('登記成功！案號 '+r.id+(r.unitEmailed?'，已 Email 通知 '+r.unitTo:''));
     $('#f-desc').value=''; $('#f-equip').value=''; onItemChange(); PHOTOS=[]; $('#f-photos').value=''; $('#f-preview').innerHTML='';
   }).catch(function(e){toast('送出失敗：'+e.message)})
   .then(function(){btn.disabled=false});
@@ -600,7 +606,8 @@ function openAdminEdit(c){
       supervisorConfirm:$('#e-sconf').value,robertNote:$('#e-robert').value})
     .then(function(r){
       var msg='已儲存';
-      if(r.emailed) msg='已儲存，已 Email 通知督導（'+r.emailTo+'）';
+      if(r.unitEmailed) msg='已儲存，已 Email 通知單位（'+r.unitTo+'）';
+      else if(r.emailed) msg='已儲存，已 Email 通知督導（'+r.emailTo+'）';
       else if(r.emailReason) msg='已儲存（未寄信：'+r.emailReason+'）';
       else if(r.notified) msg='已儲存，狀態變更已推播督導';
       toast(msg);closeModal();
@@ -721,6 +728,29 @@ $('#em-save').onclick=function(){
   var emails={};EMAIL_INPUTS.forEach(function(e){var v=e.inp.value.trim();if(v)emails[e.su]=v});
   api({action:'saveEmails',adminKey:ADMIN_KEY,emails:emails})
     .then(function(){toast('督導 Email 已儲存')}).catch(function(e){toast(e.message)});
+};
+
+/* ====== 單位（部門）Email ====== */
+var UNIT_EMAIL_INPUTS=[];
+function loadUnitEmails(){
+  api({action:'getUnitEmails',adminKey:ADMIN_KEY}).then(function(r){
+    var box=$('#ue-list');box.innerHTML='';UNIT_EMAIL_INPUTS=[];
+    var emails=r.emails||{};
+    var units=(META.units||[]).filter(function(u){return u});
+    if(!units.length){box.innerHTML='<div class="small">尚無單位</div>';return}
+    units.forEach(function(u){
+      var wrap=el('div');wrap.style.cssText='display:flex;gap:8px;align-items:center;margin:4px 0';
+      var lab=el('span','chip');lab.appendChild(el('b',null,u));
+      var inp=el('input');inp.value=emails[u]||'';inp.placeholder='多位用逗號分隔';
+      wrap.appendChild(lab);wrap.appendChild(inp);box.appendChild(wrap);
+      UNIT_EMAIL_INPUTS.push({unit:u,inp:inp});
+    });
+  }).catch(function(e){toast('載入單位 Email 失敗：'+e.message)});
+}
+$('#ue-save').onclick=function(){
+  var emails={};UNIT_EMAIL_INPUTS.forEach(function(e){var v=e.inp.value.trim();if(v)emails[e.unit]=v});
+  api({action:'saveUnitEmails',adminKey:ADMIN_KEY,emails:emails})
+    .then(function(){toast('單位 Email 已儲存')}).catch(function(e){toast(e.message)});
 };
 
 /* ====== LINE ====== */

@@ -77,6 +77,8 @@ function doPost(e) {
       case 'saveConfig':     requireAdmin_(body); return ok_(saveConfig_(body));
       case 'getEmails':      requireAdmin_(body); return ok_({ emails: supervisorEmails_() });
       case 'saveEmails':     requireAdmin_(body); return ok_(saveEmails_(body));
+      case 'getUnitEmails':  requireAdmin_(body); return ok_({ emails: unitEmails_() });
+      case 'saveUnitEmails': requireAdmin_(body); return ok_(saveUnitEmails_(body));
       case 'saveLine':       requireAdmin_(body); return ok_(saveLine_(body));
       case 'getLine':        requireAdmin_(body); return ok_(getLine_());
       case 'pushTest':       requireAdmin_(body); return ok_(pushTest_(body));
@@ -183,7 +185,11 @@ function createRepair_(body) {
   // 新案 → 推播群組（照片進圖片訊息、影片以連結附在文字）
   var pushCode = pushLineForStore_(supervisor, lineText_('new', row, '', STATUS[0]), media.photoUrls, media.videoLinks);
 
-  return { id: id, supervisor: supervisor, pushCode: pushCode };
+  // 新案 → Email 通知相關單位（依 handleUnit 找部門信箱）
+  var unitRes = { unitEmailed: false };
+  try { unitRes = unitEmailNotify_(row, '新修繕案件'); } catch (e) { unitRes = { unitEmailed: false, unitReason: String(e) }; }
+
+  return { id: id, supervisor: supervisor, pushCode: pushCode, unitEmailed: unitRes.unitEmailed, unitTo: unitRes.unitTo || '' };
 }
 
 // ─────────────────────── 更新（狀態/進度）───────────────────────
@@ -253,7 +259,15 @@ function updateRepair_(body) {
         obj.repairConfirm = body.repairConfirm != null ? body.repairConfirm : obj.repairConfirm;
         try { emailRes = emailNotify_(obj, changes); } catch (e) { emailRes = { emailed: false, reason: String(e) }; }
       }
-      return { id: id, status: newStatus, notified: statusChanged, emailed: emailRes.emailed, emailTo: emailRes.to || '', emailReason: emailRes.reason || '' };
+
+      // 更換負責單位 → Email 通知新接手的部門
+      var unitRes = { unitEmailed: false };
+      if (unitChanged) {
+        obj.handleUnit = body.handleUnit;
+        obj.status = newStatus;
+        try { unitRes = unitEmailNotify_(obj, '更換負責單位'); } catch (e) { unitRes = { unitEmailed: false, unitReason: String(e) }; }
+      }
+      return { id: id, status: newStatus, notified: statusChanged, emailed: emailRes.emailed, emailTo: emailRes.to || '', emailReason: emailRes.reason || '', unitEmailed: unitRes.unitEmailed, unitTo: unitRes.unitTo || '' };
     }
   }
   throw new Error('找不到案件 ' + id);
@@ -537,6 +551,42 @@ function emailNotify_(o, changes) {
   var subject = '【UG修繕｜進度更新】' + o.store + '｜' + o.equipment + '（' + o.status + '）';
   MailApp.sendEmail({ to: email, subject: subject, body: emailBody_(o, changes) });
   return { emailed: true, to: email };
+}
+// ── 相關單位（部門）Email ──
+// 內建預設（可由網頁「單位 Email 通知」覆寫，覆寫值存 UNIT_EMAILS）。多位收件人用逗號分隔。
+var DEFAULT_UNIT_EMAILS = {
+  '工務': 'raychien@1992sharetea.com, chrislien@1992sharetea.com',
+  '採購': 'elenasee@1992sharetea.com',
+  '資訊': ''
+};
+function unitEmails_() {
+  var out = {}, stored = safeJson_(prop_('UNIT_EMAILS'), {});
+  Object.keys(DEFAULT_UNIT_EMAILS).forEach(function (k) { out[k] = DEFAULT_UNIT_EMAILS[k]; });
+  Object.keys(stored).forEach(function (k) { if (stored[k]) out[k] = stored[k]; });
+  return out;
+}
+function saveUnitEmails_(body) {
+  if (body.emails != null) setProp_('UNIT_EMAILS', JSON.stringify(body.emails));
+  return { saved: true };
+}
+// 依單位名找 Email（容錯：「工務部」也能對到「工務」）
+function unitEmailFor_(unit) {
+  var map = unitEmails_(), u = String(unit || '').trim();
+  if (map[u]) return map[u];
+  var keys = Object.keys(map);
+  for (var i = 0; i < keys.length; i++) {
+    var k = keys[i]; if (!map[k]) continue;
+    if (k.indexOf(u) >= 0 || (u && u.indexOf(k) >= 0)) return map[k];
+  }
+  return '';
+}
+// 寄 Email 給相關單位（新案件、更換負責單位時）
+function unitEmailNotify_(o, headline) {
+  var to = String(unitEmailFor_(o.handleUnit) || '').trim();
+  if (!to) return { unitEmailed: false, unitReason: '單位「' + (o.handleUnit || '未指定') + '」未設定 Email' };
+  var subject = '【UG修繕｜' + headline + '】' + o.store + '｜' + o.equipment + '（' + o.handleUnit + '）';
+  MailApp.sendEmail({ to: to, subject: subject, body: emailBody_(o, [['通知事由', headline]]) });
+  return { unitEmailed: true, unitTo: to };
 }
 function emailBody_(o, changes) {
   var L = [
