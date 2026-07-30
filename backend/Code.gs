@@ -75,6 +75,8 @@ function doPost(e) {
       case 'delete':         requireAdmin_(body); return ok_(deleteRepair_(body.id));
       case 'repush':         requireAdmin_(body); return ok_(repush_(body));
       case 'saveConfig':     requireAdmin_(body); return ok_(saveConfig_(body));
+      case 'getEmails':      requireAdmin_(body); return ok_({ emails: supervisorEmails_() });
+      case 'saveEmails':     requireAdmin_(body); return ok_(saveEmails_(body));
       case 'saveLine':       requireAdmin_(body); return ok_(saveLine_(body));
       case 'getLine':        requireAdmin_(body); return ok_(getLine_());
       case 'pushTest':       requireAdmin_(body); return ok_(pushTest_(body));
@@ -196,6 +198,8 @@ function updateRepair_(body) {
       var obj = rowToObj_(hidx, data[r]);
       var oldStatus = obj.status;
       var oldUnit = String(obj.handleUnit || '');
+      var oldProgress = String(obj.progressNote || '');
+      var oldRepair = String(obj.repairConfirm || '');
       var newStatus = body.status != null ? String(body.status) : oldStatus;
 
       // 手動調整「相關單位」（且有變動）→ 自動把狀態帶成「更換負責單位」→ 觸發群組通知
@@ -234,7 +238,22 @@ function updateRepair_(body) {
                  : newStatus === STATUS_UNIT ? 'unit' : 'status';
         pushLineForStore_(obj.supervisor, lineText_(kind, obj, oldStatus, newStatus));
       }
-      return { id: id, status: newStatus, notified: statusChanged };
+
+      // Email 通知：處理進度 / 修繕部門處理確認 有新增或變更 → 寄信給該案件督導
+      var changes = [];
+      if (body.progressNote != null && String(body.progressNote) !== oldProgress && String(body.progressNote).trim())
+        changes.push(['處理進度 / 說明', String(body.progressNote)]);
+      if (body.repairConfirm != null && String(body.repairConfirm) !== oldRepair && String(body.repairConfirm).trim())
+        changes.push(['修繕部門處理確認', String(body.repairConfirm)]);
+      var emailRes = { emailed: false };
+      if (changes.length) {
+        obj.status = newStatus;
+        obj.handleUnit = body.handleUnit != null ? body.handleUnit : obj.handleUnit;
+        obj.progressNote = body.progressNote != null ? body.progressNote : obj.progressNote;
+        obj.repairConfirm = body.repairConfirm != null ? body.repairConfirm : obj.repairConfirm;
+        try { emailRes = emailNotify_(obj, changes); } catch (e) { emailRes = { emailed: false, reason: String(e) }; }
+      }
+      return { id: id, status: newStatus, notified: statusChanged, emailed: emailRes.emailed, emailTo: emailRes.to || '', emailReason: emailRes.reason || '' };
     }
   }
   throw new Error('找不到案件 ' + id);
@@ -477,6 +496,41 @@ function saveConfig_(body) {
   if (body.zones != null) setProp_('ZONES_CONFIG', JSON.stringify(body.zones));
   return { saved: true };
 }
+
+// ─────────────────────── 督導 Email 通知 ───────────────────────
+function supervisorEmails_() { return safeJson_(prop_('SUPERVISOR_EMAILS'), {}); }  // { 督導: 'name@example.com' }
+function saveEmails_(body) {
+  if (body.emails != null) setProp_('SUPERVISOR_EMAILS', JSON.stringify(body.emails));
+  return { saved: true };
+}
+// 寄 Email 給該案件督導（處理進度／修繕確認有更新時）
+function emailNotify_(o, changes) {
+  var email = String((supervisorEmails_()[o.supervisor] || '')).trim();
+  if (!email) return { emailed: false, reason: '督導「' + (o.supervisor || '未指派') + '」未設定 Email' };
+  var subject = '【UG修繕｜進度更新】' + o.store + '｜' + o.equipment + '（' + o.status + '）';
+  MailApp.sendEmail({ to: email, subject: subject, body: emailBody_(o, changes) });
+  return { emailed: true, to: email };
+}
+function emailBody_(o, changes) {
+  var L = [
+    '修繕案件有進度更新，內容如下：', '',
+    '案號：' + o.id,
+    '門市：' + o.store,
+    '督導：' + (o.supervisor || '-'),
+    '報修項目：' + o.equipment,
+    '設備編號：' + (o.equipNo || '-'),
+    '相關單位：' + (o.handleUnit || '-'),
+    '聯絡人：' + (o.contact || '-') + '　電話：' + (o.phone || '-'),
+    '目前狀態：' + o.status,
+    '問題描述：' + (o.description || '-'), ''
+  ];
+  L.push('── 本次更新 ──');
+  changes.forEach(function (c) { L.push('【' + c[0] + '】' + c[1]); });
+  var link = prop_('LINE_LINK') || '';
+  if (link) { L.push(''); L.push('查看案件：' + link); }
+  L.push(''); L.push('（本信由 UG 門市修繕進度系統自動發送）');
+  return L.join('\n');
+}
 // ─────────────────────── 試算表 / 工具 ───────────────────────
 function ss_() {
   var id = prop_('SPREADSHEET_ID');
@@ -548,6 +602,12 @@ function forceAuthDrive() {
   var f = fo.createFile(Utilities.newBlob('ok', 'text/plain', 'auth_probe.txt'));
   Logger.log('drive ok, folder=' + fo.getId() + ' probe=' + f.getId());
   f.setTrashed(true);
+}
+// 強制逼出寄信授權（裸呼叫，勿包 try/catch）→ 在編輯器執行一次，會寄一封測試信給自己
+function forceAuthMail() {
+  var me = Session.getActiveUser().getEmail();
+  MailApp.sendEmail(me, 'UG修繕 Email 授權測試', '收到這封信代表 Email 通知功能已授權完成，可正常使用。');
+  Logger.log('mail sent to ' + me);
 }
 // 強制逼出對外連線授權（裸呼叫，勿包 try/catch）→ 在編輯器執行
 function forceAuthLine() {
