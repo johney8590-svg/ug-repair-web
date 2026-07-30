@@ -498,14 +498,41 @@ function saveConfig_(body) {
 }
 
 // ─────────────────────── 督導 Email 通知 ───────────────────────
-function supervisorEmails_() { return safeJson_(prop_('SUPERVISOR_EMAILS'), {}); }  // { 督導: 'name@example.com' }
+// 內建預設 Email（可由網頁「督導 Email 通知」覆寫，覆寫值存 SUPERVISOR_EMAILS）
+var DEFAULT_EMAILS = {
+  '林雨慈 Ivory':  'ivorylin@1992sharetea.com',
+  '呂韋興 Robert': 'Robertlu@1992sharetea.com',
+  '許瑛琪 Lydia':  'lydiahsu@1992sharetea.com',
+  '劉靜蓮 Jill':   'jillianliu@1992sharetea.com',
+  '劉邦鑫 Benson': 'bensonliu@1992sharetea.com',
+  '林凱琳 Liisa':  'liisalin@1992sharetea.com'
+};
+// 預設值為底，網頁儲存的值覆寫其上
+function supervisorEmails_() {
+  var out = {}, stored = safeJson_(prop_('SUPERVISOR_EMAILS'), {});
+  Object.keys(DEFAULT_EMAILS).forEach(function (k) { out[k] = DEFAULT_EMAILS[k]; });
+  Object.keys(stored).forEach(function (k) { if (stored[k]) out[k] = stored[k]; });
+  return out;
+}
 function saveEmails_(body) {
   if (body.emails != null) setProp_('SUPERVISOR_EMAILS', JSON.stringify(body.emails));
   return { saved: true };
 }
+// 依督導名找 Email（容錯：完整比對不到時，比對中文姓名／英文名）
+function emailFor_(supervisor) {
+  var map = supervisorEmails_(), s = String(supervisor || '').trim();
+  if (map[s]) return map[s];
+  var keys = Object.keys(map);
+  for (var i = 0; i < keys.length; i++) {
+    var k = keys[i]; if (!map[k]) continue;
+    if (k.indexOf(s) >= 0 || (s && s.indexOf(k) >= 0)) return map[k];
+    if (k.split(/\s+/)[0] === s.split(/\s+/)[0] && s) return map[k];  // 中文姓名相同
+  }
+  return '';
+}
 // 寄 Email 給該案件督導（處理進度／修繕確認有更新時）
 function emailNotify_(o, changes) {
-  var email = String((supervisorEmails_()[o.supervisor] || '')).trim();
+  var email = String(emailFor_(o.supervisor) || '').trim();
   if (!email) return { emailed: false, reason: '督導「' + (o.supervisor || '未指派') + '」未設定 Email' };
   var subject = '【UG修繕｜進度更新】' + o.store + '｜' + o.equipment + '（' + o.status + '）';
   MailApp.sendEmail({ to: email, subject: subject, body: emailBody_(o, changes) });
