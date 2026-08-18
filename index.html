@@ -216,7 +216,12 @@
       <h2>門市 → 督導 對照</h2>
       <div class="hint">每行一家門市，<b>門市</b>與<b>督導</b>之間用 <b>Tab 或逗號</b> 分隔——<b>可直接從 Excel 框選兩欄（門市、督導）複製，整批貼上這裡</b>，再按儲存即可新增。督導留空也可以（之後再補）。</div>
       <textarea id="set-dir" placeholder="例：&#10;台中大里店&#9;林凱琳 Liisa&#10;新店民權店&#9;呂韋興 Robert" style="min-height:200px;font-family:monospace;font-size:13px"></textarea>
-      <div style="margin-top:10px"><button class="btn sm" id="set-dir-save">儲存對照表</button> <span class="small" id="set-dir-count"></span></div>
+      <div style="margin-top:10px">
+        <button class="btn sm" id="set-dir-save">儲存對照表</button>
+        <button class="btn sm" id="set-dir-sync" style="background:#5b7c99">🔄 從門店資料表同步</button>
+        <span class="small" id="set-dir-count"></span>
+      </div>
+      <div class="small" style="margin-top:6px;color:#777">門市／督導主檔＝Google 試算表「門店資料表_UG」（三套系統共用）。按同步會依主檔<b>新增門市、更新督導</b>，並一併更新文宣申請系統與門市物料異常回報系統；<b>不會刪除</b>這裡手動加的門市，主檔沒填督導的也會保留這裡填的值。</div>
     </div>
     <div class="card">
       <h2>督導 Email 通知</h2>
@@ -717,6 +722,26 @@ $('#set-dir-save').onclick=function(){
     $('#set-dir-count').textContent='目前 '+Object.keys(dir).length+' 家門市';
     toast('已儲存：'+Object.keys(dir).length+' 家門市');
   }).catch(function(e){toast(e.message)});
+};
+$('#set-dir-sync').onclick=function(){
+  var btn=$('#set-dir-sync'); btn.disabled=true; var old=btn.textContent; btn.textContent='同步中…';
+  api({action:'syncStores',adminKey:ADMIN_KEY}).then(function(r){
+    var add=r.added||[], chg=r.supervisorChanged||[], peers=r.peers||[];
+    // 重新載入 meta 讓門市／督導下拉與設定頁一起更新
+    return api({action:'meta',token:API_TOKEN}).then(function(m){
+      META=m; loadSettings();
+      fillStores($('#f-store')); fillStores($('#m-store'),true);
+      var fsu=$('#a-fsuper'); fsu.innerHTML='<option value="">全部督導</option>';
+      (META.supervisors||[]).forEach(function(x){ fsu.appendChild(new Option(x,x)) });
+      var okPeers=peers.filter(function(p){return p&&p.ok}).length;
+      toast('✅ 同步完成：'+(r.stores||0)+' 家門市／新增 '+add.length+'／督導更新 '+chg.length+
+            (peers.length?('（另 '+okPeers+'/'+peers.length+' 套系統已連動）'):''));
+      if(add.length) console.log('新增門市：',add);
+      if(chg.length) console.log('督導更新：',chg);
+      if(peers.length) console.log('連動結果：',peers);
+    });
+  }).catch(function(e){ toast('⚠ 同步失敗：'+e.message) })
+    .then(function(){ btn.disabled=false; btn.textContent=old; });
 };
 $('#set-equip-save').onclick=function(){
   var zones={};
