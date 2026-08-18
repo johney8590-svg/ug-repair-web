@@ -139,6 +139,8 @@ function meta_() {
     itemMeta: itemMeta_(),           // {項目:{unit, need}}（自動帶單位 + 是否強制設備編號）
     units: DEFAULT_UNITS,
     statuses: STATUS,
+    regions: storeRegions_(),          // {門市:區域}（來源＝門店資料表，設定頁可手動改）
+    regionOrder: regionOrder_(),       // 區域顯示順序（門市下拉分組用）
     syncAt: prop_('STORE_SYNC_AT') || ''
   };
 }
@@ -146,6 +148,23 @@ function directory_() {
   var raw = prop_('STORE_DIRECTORY');
   if (raw) { try { var o = JSON.parse(raw); if (o && Object.keys(o).length) return o; } catch (e) {} }
   return DEFAULT_DIRECTORY;
+}
+// 門市 → 區域（Script Properties: STORE_REGIONS；來源＝門店資料表，設定頁可手動調整）
+function storeRegions_() {
+  var raw = prop_('STORE_REGIONS');
+  if (raw) { try { var o = JSON.parse(raw); if (o && typeof o === 'object') return o; } catch (e) {} }
+  return {};
+}
+// 區域顯示順序（存 REGION_ORDER；沒有就依門市對照出現順序推）
+function regionOrder_() {
+  var raw = prop_('REGION_ORDER');
+  if (raw) { try { var a = JSON.parse(raw); if (Array.isArray(a) && a.length) return a; } catch (e) {} }
+  var reg = storeRegions_(), seen = {}, out = [];
+  Object.keys(directory_()).forEach(function (k) {
+    var r = reg[k] || '';
+    if (r && !seen[r]) { seen[r] = 1; out.push(r); }
+  });
+  return out;
 }
 function zonesConfig_() {
   var raw = prop_('ZONES_CONFIG');
@@ -531,6 +550,16 @@ function capturedIds_() { return safeJson_(prop_('CAPTURED_IDS'), []); }
 // ─────────────────────── 設定 / 密碼 ───────────────────────
 function saveConfig_(body) {
   if (body.directory != null) setProp_('STORE_DIRECTORY', JSON.stringify(body.directory));
+  if (body.regions != null) {                       // {門市:區域}（設定頁第三欄）
+    var reg = {}, order = [], seen = {};
+    Object.keys(body.regions).forEach(function (k) {
+      var v = String(body.regions[k] == null ? '' : body.regions[k]).replace(/\s+/g, ' ').trim();
+      reg[String(k).trim()] = v;
+      if (v && !seen[v]) { seen[v] = 1; order.push(v); }
+    });
+    setProp_('STORE_REGIONS', JSON.stringify(reg));
+    setProp_('REGION_ORDER', JSON.stringify(order));
+  }
   if (body.zones != null) setProp_('ZONES_CONFIG', JSON.stringify(body.zones));
   return { saved: true };
 }
@@ -577,9 +606,11 @@ function syncStoresFromMaster_(body) {
   var master = masterStores_();
   var dir = directory_(), out = {};
   Object.keys(dir).forEach(function (k) { out[k] = dir[k]; });
+  var reg = storeRegions_(), regOut = {}, order = [], seenReg = {};
+  Object.keys(reg).forEach(function (k) { regOut[k] = reg[k]; });
   var idx = {};
   Object.keys(out).forEach(function (k) { idx[normStore_(k)] = k; });
-  var added = [], changed = [], seen = {};
+  var added = [], changed = [], moved = [], seen = {};
   master.forEach(function (rec) {
     var key = normStore_(rec.name);
     if (!key) return;
@@ -587,12 +618,19 @@ function syncStoresFromMaster_(body) {
     var name = idx[key];
     if (!name) { name = rec.name; idx[key] = name; out[name] = ''; added.push(name); }
     if (rec.sup && out[name] !== rec.sup) { out[name] = rec.sup; changed.push(name + '→' + rec.sup); }
+    if (rec.region) {
+      if (regOut[name] && regOut[name] !== rec.region) moved.push(name + '：' + regOut[name] + '→' + rec.region);
+      regOut[name] = rec.region;
+      if (!seenReg[rec.region]) { seenReg[rec.region] = 1; order.push(rec.region); }
+    }
   });
+  setProp_('STORE_REGIONS', JSON.stringify(regOut));
+  if (order.length) setProp_('REGION_ORDER', JSON.stringify(order));
   var onlyHere = Object.keys(idx).filter(function (k) { return !seen[k]; }).map(function (k) { return idx[k]; });
   setProp_('STORE_DIRECTORY', JSON.stringify(out));
   setProp_('STORE_SYNC_AT', new Date().toISOString());
   var res = {
-    stores: Object.keys(out).length, added: added, supervisorChanged: changed,
+    stores: Object.keys(out).length, added: added, supervisorChanged: changed, regionMoved: moved,
     onlyInRepair: onlyHere, at: prop_('STORE_SYNC_AT')
   };
   if (!(body && body.noFanout)) res.peers = fanoutSync_();
