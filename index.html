@@ -215,7 +215,7 @@
     <div class="card">
       <h2>門市 → 督導 對照</h2>
       <div class="hint">每行一家門市，<b>門市</b>與<b>督導</b>之間用 <b>Tab 或逗號</b> 分隔——<b>可直接從 Excel 框選兩欄（門市、督導）複製，整批貼上這裡</b>，再按儲存即可新增。督導留空也可以（之後再補）。</div>
-      <textarea id="set-dir" placeholder="例：&#10;台中大里店&#9;林凱琳 Liisa&#10;新店民權店&#9;呂韋興 Robert" style="min-height:200px;font-family:monospace;font-size:13px"></textarea>
+      <textarea id="set-dir" placeholder="每行「門市&#9;督導&#9;區域」（Tab 或逗號分隔，督導/區域可留空）&#10;例：&#10;台中大里店&#9;林凱琳 Liisa&#9;中彰投&#10;新店民權店&#9;呂韋興 Robert&#9;北北基宜花" style="min-height:200px;font-family:monospace;font-size:13px"></textarea>
       <div style="margin-top:10px">
         <button class="btn sm" id="set-dir-save">儲存對照表</button>
         <button class="btn sm" id="set-dir-sync" style="background:#5b7c99">🔄 從門店資料表同步</button>
@@ -364,7 +364,23 @@ function openPendingCase(){
 function fillStores(sel,withBlank){
   sel.innerHTML='';
   if(withBlank) sel.appendChild(new Option('請選擇門市',''));
-  META.stores.forEach(function(s){sel.appendChild(new Option(s,s))});
+  var reg=(META&&META.regions)||{}, order=(META&&META.regionOrder)||[];
+  var buckets={}, used={};
+  order.forEach(function(r){buckets[r]=[]});
+  META.stores.forEach(function(s){
+    var r=reg[s]||'';
+    if(!r){ (buckets['其他']=buckets['其他']||[]).push(s); return; }
+    (buckets[r]=buckets[r]||[]).push(s); used[r]=1;
+  });
+  var keys=order.filter(function(r){return buckets[r]&&buckets[r].length});
+  Object.keys(buckets).forEach(function(r){if(keys.indexOf(r)<0&&buckets[r].length)keys.push(r)});
+  if(!keys.length){ META.stores.forEach(function(s){sel.appendChild(new Option(s,s))}); return; }
+  keys.forEach(function(r){                       // 依區域分組，門市比較好找
+    var og=document.createElement('optgroup');
+    og.label=r+'（'+buckets[r].length+'）';
+    buckets[r].forEach(function(s){og.appendChild(new Option(s,s))});
+    sel.appendChild(og);
+  });
 }
 function fillOptions(sel,arr,ph){
   sel.innerHTML='';
@@ -695,7 +711,8 @@ function fallbackCopy_(text){
 
 /* ====== 設定 ====== */
 function loadSettings(){
-  var dir=META.directory; var lines=Object.keys(dir).sort().map(function(k){return k+'\t'+dir[k]});
+  var dir=META.directory, reg=(META&&META.regions)||{};
+  var lines=Object.keys(dir).sort().map(function(k){return k+'\t'+(dir[k]||'')+'\t'+(reg[k]||'')});
   $('#set-dir').value=lines.join('\n');
   $('#set-dir-count').textContent='目前 '+Object.keys(dir).length+' 家門市';
   var rows=[];
@@ -704,17 +721,18 @@ function loadSettings(){
   $('#set-equip').value=rows.join('\n');
 }
 $('#set-dir-save').onclick=function(){
-  var dir={};
+  var dir={}, regions={};
   $('#set-dir').value.split('\n').forEach(function(l){
     if(!l.trim())return;
     var p=l.split(/\t|,/);                       // 支援 Tab（Excel 貼上）或逗號
     var store=(p[0]||'').replace(/^"|"$/g,'').trim();
     var sup=(p[1]||'').replace(/^"|"$/g,'').replace(/\s+/g,' ').trim();
-    if(store) dir[store]=sup;                     // 督導留空也收（未指派）
+    var reg=(p[2]||'').replace(/^"|"$/g,'').replace(/\s+/g,' ').trim();   // 第三欄＝區域（可留空）
+    if(store){ dir[store]=sup; regions[store]=reg; }
   });
   if(!Object.keys(dir).length) return toast('沒有可儲存的門市');
-  api({action:'saveConfig',adminKey:ADMIN_KEY,directory:dir}).then(function(){
-    META.directory=dir;META.stores=Object.keys(dir).sort();
+  api({action:'saveConfig',adminKey:ADMIN_KEY,directory:dir,regions:regions}).then(function(){
+    META.directory=dir;META.regions=regions;META.stores=Object.keys(dir).sort();
     META.supervisors=[];Object.keys(dir).forEach(function(k){var s=dir[k];if(s&&META.supervisors.indexOf(s)<0)META.supervisors.push(s)});
     // 重建門市端與管理端下拉
     fillStores($('#f-store'));fillStores($('#m-store'),true);
