@@ -12,7 +12,20 @@ var CONFIG = {
   SHEET_NAME: '門市修繕進度系統',
   API_TOKEN: 'rp_8sK2mVq7Xz4Pd',      // 門市端共用 token（存 Script Properties: API_TOKEN）
   ADMIN_KEY: 'UGfix-7Q2x9',           // 管理端通行金鑰（＝前端連結 ?m= 的值；無密碼登入，有連結即可進）
+  // 門市／督導主檔＝Google 試算表「門店資料表_UG」（三套系統共用，Script Properties 可覆寫）
+  MASTER_SHEET_ID: '1MMsKbGNR1gEnI04TLBpv3SR47bqh5CYrd1RSVwohdT4',
+  MASTER_SHEET_GID: 1076844819,
 };
+
+// 同步後一併通知的另外兩套系統（帶 noFanout 避免互相呼叫成無限迴圈）
+var PEER_SYSTEMS = [
+  { name: '文宣申請系統',
+    url:  'https://script.google.com/macros/s/AKfycbwn-hiS6mPpxw3BmZCqTmH211g0AwI7KW7xiBMzWyYXdymk5eBYCeL3eRZq6kz1u9yrRw/exec',
+    auth: { token: 'pr_kQ7mZ2xV9tLpA4nBwR8sYcEf' } },
+  { name: '門市物料異常回報系統',
+    url:  'https://script.google.com/macros/s/AKfycbzyZqkKtYuSuMUv31cAaHC3JZU33Gk8ETYvjWtowQ2pn6EfVMv771_biO2V6kH0lgGf/exec',
+    auth: { token: 'gkt00TlVXvaARtTtBthQ9MUechEw' } }
+];
 
 // 狀態定義（順序＝流程）
 var STATUS = ['待處理', '處理中', '更換負責單位', '待討論', '已結案'];
@@ -50,7 +63,9 @@ var ATT_HEADERS = ['id','repairId','kind','mime','dataUrl','createdAt'];
 
 // ─────────────────────── 入口 ───────────────────────
 function doGet(e) {
-  // LINE webhook 走 doPost；doGet 只回健康檢查
+  // 供其他系統唯讀取用門市／督導對照（內容同 doPost 的 meta，本來就免 token）
+  if (e && e.parameter && e.parameter.action === 'meta') return ok_(meta_());
+  // LINE webhook 走 doPost；其餘 doGet 只回健康檢查
   return json_({ ok: true, service: 'UG repair backend', time: new Date().toISOString() });
 }
 
@@ -75,6 +90,7 @@ function doPost(e) {
       case 'delete':         requireAdmin_(body); return ok_(deleteRepair_(body.id));
       case 'repush':         requireAdmin_(body); return ok_(repush_(body));
       case 'saveConfig':     requireAdmin_(body); return ok_(saveConfig_(body));
+      case 'syncStores':     requireSync_(body);  return ok_(syncStoresFromMaster_(body));  // 從門店資料表同步門市／督導
       case 'getEmails':      requireAdmin_(body); return ok_({ emails: supervisorEmails_() });
       case 'saveEmails':     requireAdmin_(body); return ok_(saveEmails_(body));
       case 'getUnitEmails':  requireAdmin_(body); return ok_({ emails: unitEmails_() });
@@ -94,6 +110,13 @@ function doPost(e) {
 function requireToken_(body) {
   var t = prop_('API_TOKEN') || CONFIG.API_TOKEN;
   if (!body || body.token !== t) throw new Error('unauthorized');
+}
+// syncStores 專用：管理金鑰或門市端 token 皆可（另外兩套系統連動時用 token）
+function requireSync_(body) {
+  var key = prop_('ADMIN_KEY') || CONFIG.ADMIN_KEY;
+  var t = prop_('API_TOKEN') || CONFIG.API_TOKEN;
+  if (body && (String(body.adminKey || '') === String(key) || body.token === t)) return;
+  throw new Error('unauthorized');
 }
 function requireAdmin_(body) {
   // 無密碼登入：以連結金鑰(adminKey) 當管理通行碼（前端從 ?m= 自動帶上）
@@ -115,7 +138,8 @@ function meta_() {
     zones: zones,                    // [{zone, items:[...]}]（先選分區再選項目）
     itemMeta: itemMeta_(),           // {項目:{unit, need}}（自動帶單位 + 是否強制設備編號）
     units: DEFAULT_UNITS,
-    statuses: STATUS
+    statuses: STATUS,
+    syncAt: prop_('STORE_SYNC_AT') || ''
   };
 }
 function directory_() {
@@ -509,6 +533,99 @@ function saveConfig_(body) {
   if (body.directory != null) setProp_('STORE_DIRECTORY', JSON.stringify(body.directory));
   if (body.zones != null) setProp_('ZONES_CONFIG', JSON.stringify(body.zones));
   return { saved: true };
+}
+
+// ─────────────── 門市／督導主檔（Google 試算表「門店資料表_UG」）───────────────
+// 三套系統（修繕進度／文宣申請／門市物料異常回報）都同步自這份試算表；
+// 本系統仍可在「設定→門市對照」手動增修，同步時**只新增與更新，永不刪除**手動加的門市。
+function masterSheet_() {
+  var id  = prop_('MASTER_SHEET_ID')  || CONFIG.MASTER_SHEET_ID;
+  var gid = Number(prop_('MASTER_SHEET_GID') || CONFIG.MASTER_SHEET_GID);
+  var ss = SpreadsheetApp.openById(id);
+  var hit = ss.getSheets().filter(function (sh) { return sh.getSheetId() === gid; })[0];
+  return hit || ss.getSheets()[0];
+}
+// 讀主檔門市清單 → [{name, sup, region}]（同門市直營／加盟兩列只取一筆；標題列自動偵測）
+function masterStores_() {
+  var values = masterSheet_().getDataRange().getValues();
+  var hr = -1, cStore = -1, cSup = -1, cRegion = -1;
+  for (var i = 0; i < Math.min(values.length, 12); i++) {
+    var row = values[i].map(function (x) { return String(x == null ? '' : x).replace(/\s/g, ''); });
+    var si = row.indexOf('門市');
+    var pi = row.map(function (x) { return x.indexOf('督導') >= 0; }).indexOf(true);
+    if (si >= 0 && pi >= 0) { hr = i; cStore = si; cSup = pi; cRegion = row.indexOf('區域'); break; }
+  }
+  if (hr < 0) throw new Error('門店資料表找不到「門市」與「督導」欄位（請確認分頁 gid）');
+  var out = [], idx = {};
+  for (var r = hr + 1; r < values.length; r++) {
+    var name = String(values[r][cStore] == null ? '' : values[r][cStore]).replace(/\s+/g, ' ').trim();
+    if (!name) continue;
+    var sup = String(values[r][cSup] == null ? '' : values[r][cSup]).replace(/\s+/g, ' ').trim();
+    var region = cRegion >= 0 ? String(values[r][cRegion] == null ? '' : values[r][cRegion]).replace(/\s+/g, ' ').trim() : '';
+    var key = normStore_(name);
+    if (idx[key]) { if (sup && !idx[key].sup) idx[key].sup = sup; continue; }
+    var rec = { name: name, sup: sup, region: region };
+    idx[key] = rec; out.push(rec);
+  }
+  if (!out.length) throw new Error('門店資料表沒有讀到任何門市');
+  return out;
+}
+// 門市名稱正規化（各系統有的帶「店」字尾、有的沒有，比對時一律去掉）
+function normStore_(s) { return String(s == null ? '' : s).trim().replace(/店$/, ''); }
+// 從主檔同步門市／督導到 STORE_DIRECTORY（只新增與更新）
+function syncStoresFromMaster_(body) {
+  var master = masterStores_();
+  var dir = directory_(), out = {};
+  Object.keys(dir).forEach(function (k) { out[k] = dir[k]; });
+  var idx = {};
+  Object.keys(out).forEach(function (k) { idx[normStore_(k)] = k; });
+  var added = [], changed = [], seen = {};
+  master.forEach(function (rec) {
+    var key = normStore_(rec.name);
+    if (!key) return;
+    seen[key] = 1;
+    var name = idx[key];
+    if (!name) { name = rec.name; idx[key] = name; out[name] = ''; added.push(name); }
+    if (rec.sup && out[name] !== rec.sup) { out[name] = rec.sup; changed.push(name + '→' + rec.sup); }
+  });
+  var onlyHere = Object.keys(idx).filter(function (k) { return !seen[k]; }).map(function (k) { return idx[k]; });
+  setProp_('STORE_DIRECTORY', JSON.stringify(out));
+  setProp_('STORE_SYNC_AT', new Date().toISOString());
+  var res = {
+    stores: Object.keys(out).length, added: added, supervisorChanged: changed,
+    onlyInRepair: onlyHere, at: prop_('STORE_SYNC_AT')
+  };
+  if (!(body && body.noFanout)) res.peers = fanoutSync_();
+  return res;
+}
+// 同步後通知另外兩套系統也各自去主檔同步一次（失敗不影響本系統）
+function fanoutSync_() {
+  return PEER_SYSTEMS.map(function (p) {
+    try {
+      var payload = { action: 'syncStores', noFanout: true };
+      Object.keys(p.auth).forEach(function (k) { payload[k] = p.auth[k]; });
+      var res = UrlFetchApp.fetch(p.url, {
+        method: 'post', contentType: 'application/json',
+        payload: JSON.stringify(payload), muteHttpExceptions: true
+      });
+      var j = JSON.parse(res.getContentText());
+      var d = j.data || j;
+      return { system: p.name, ok: !!j.ok, stores: d.stores || 0,
+               added: (d.added || []).length, changed: (d.supervisorChanged || []).length, error: j.error || '' };
+    } catch (e) { return { system: p.name, ok: false, error: String((e && e.message) || e) }; }
+  });
+}
+// 編輯器工具：確認主檔讀得到
+function checkMasterSheet() {
+  var list = masterStores_();
+  Logger.log('主檔門市數：' + list.length);
+  Logger.log(JSON.stringify(list.slice(0, 3)));
+  return list.length;
+}
+// 每日自動同步：編輯器左側「觸發條件」新增 → 函式 dailySyncStores、時間驅動、每日
+function dailySyncStores() {
+  try { Logger.log('門市同步完成：' + JSON.stringify(syncStoresFromMaster_({ noFanout: true }))); }
+  catch (e) { Logger.log('門市同步失敗：' + e); }
 }
 
 // ─────────────────────── 督導 Email 通知 ───────────────────────
