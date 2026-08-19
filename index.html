@@ -192,6 +192,10 @@
           <input id="a-fkw" placeholder="搜尋門市／設備／問題" />
           <button class="btn sec sm" id="a-refresh">重新整理</button>
         </div>
+        <div id="a-scope" class="small" style="display:none;margin:2px 0 8px;padding:6px 10px;background:#f6f7f9;border-radius:6px">
+          <span id="a-scope-txt"></span>
+          <button class="btn gray sm" id="a-loadall" style="margin-left:8px">載入全部</button>
+        </div>
         <div class="filters">
           <span class="rangelab">登記期間</span>
           <input type="date" id="a-ffrom" />
@@ -285,7 +289,8 @@ var API_BASE = 'https://script.google.com/macros/s/AKfycbwF7YapsErRssEKCC_Nkcxdl
 var API_TOKEN = 'rp_8sK2mVq7Xz4Pd';      // 門市端共用 token，需與後端 Script Properties API_TOKEN 一致
 var ADMIN_GATE_KEY = 'UGfix-7Q2x9';      // 網址 ?m=此值 才顯示管理分頁（僅降低曝光，真正驗證在後端密碼）
 var LIFF_ID = '';                        // 若要當 LIFF 用，填 LINE LIFF ID（選填）
-var VERSION = 'v1.6';
+var VERSION = 'v1.8';
+var ADMIN_LIMIT = 300;   // 首次只載最新 300 筆；未結案不論多舊一律帶回（後端保證）
 
 /* ====== 狀態 ====== */
 var META = null, ADMIN_KEY = '', ADMIN_DATA = [];
@@ -327,6 +332,11 @@ function init(){
   }
   $('#f-date').value=new Date().toISOString().slice(0,10);
 
+  // 管理端：與 meta 同時發送，不再等 meta 回來才開始（省一輪往返）
+  var adminP=null;
+  if(IS_ADMIN){ showAdminTab(); showLoading('載入案件中…');
+    adminP=api({action:'adminList',adminKey:ADMIN_KEY,bundle:1,limit:ADMIN_LIMIT}); }
+
   api({action:'meta'}).then(function(m){
     META=m;
     fillStores($('#f-store')); fillStores($('#m-store'),true);
@@ -338,21 +348,41 @@ function init(){
     var fu=$('#a-funit'); m.units.forEach(function(u){fu.appendChild(new Option(u,u))});
     var fe=$('#a-fequip'); m.equipment.forEach(function(eq){fe.appendChild(new Option(eq,eq))});
     onStoreChange();
-    if(IS_ADMIN) enterAdmin();   // 有管理連結 → 直接進案件管理，免登入
-  }).catch(function(e){toast('載入失敗：'+e.message)});
+    if(adminP) return adminP.then(applyAdmin).catch(function(e){hideLoading();toast('管理載入失敗：'+e.message)});
+  }).catch(function(e){hideLoading();toast('載入失敗：'+e.message)});
 
   if(LIFF_ID && window.liff){ try{ liff.init({liffId:LIFF_ID}); }catch(e){} }
 }
 // 直接進入案件管理（無密碼）
-function enterAdmin(){
+function showAdminTab(){
   var tab=[].slice.call(document.querySelectorAll('nav button')).filter(function(b){return b.dataset.tab==='admin'})[0];
   if(tab){ document.querySelectorAll('nav button').forEach(function(x){x.classList.remove('active')});
     tab.classList.add('active');
     document.querySelectorAll('.page').forEach(function(p){p.classList.remove('active')});
     $('#page-admin').classList.add('active'); }
   $('#admin-body').style.display='block';
-  api({action:'adminList',adminKey:ADMIN_KEY}).then(function(r){ADMIN_DATA=r.list;renderAdmin();loadSettings();loadEmails();loadUnitEmails();loadLine();openPendingCase();})
-    .catch(function(e){toast('管理載入失敗：'+e.message)});
+}
+var LOAD_FULL=true, LOAD_TOTAL=0;
+function setScope(r){
+  LOAD_FULL = r.full!==false; LOAD_TOTAL = r.total||0;
+  var box=$('#a-scope');
+  if(LOAD_FULL){ box.style.display='none'; return; }
+  box.style.display='block';
+  $('#a-scope-txt').textContent='已載入最新 '+(r.list||[]).length+' 筆（含全部未結案），資料表共 '+LOAD_TOTAL+' 筆。查更早的已結案請按';
+}
+function applyAdmin(r){
+  ADMIN_DATA=r.list||[]; setScope(r); renderAdmin(); loadSettings();
+  // 後端若尚未更新（無 bundle 欄位）→ 回退成個別呼叫，避免用空物件覆蓋設定畫面
+  if(r.emails)     fillEmails(r.emails);         else loadEmails();
+  if(r.unitEmails) fillUnitEmails(r.unitEmails); else loadUnitEmails();
+  if(r.line)       fillLine(r.line);             else loadLine();
+  openPendingCase(); hideLoading();
+}
+// 保留舊進入點（其他地方若有呼叫仍可用）
+function enterAdmin(){
+  showAdminTab(); showLoading('載入案件中…');
+  api({action:'adminList',adminKey:ADMIN_KEY,bundle:1,limit:ADMIN_LIMIT}).then(applyAdmin)
+    .catch(function(e){hideLoading();toast('管理載入失敗：'+e.message)});
 }
 // Email 連結 ?case=案號 → 自動打開該案件的管理視窗
 function openPendingCase(){
@@ -553,11 +583,21 @@ function appendPhotos(b,c){
 var SORT='todo';
 ['a-funit','a-fequip','a-fstatus','a-fsuper','a-fkw','a-ffrom','a-fto'].forEach(function(id){var e=$('#'+id);e.oninput=renderAdmin;e.onchange=renderAdmin});
 $('#a-fclear').onclick=function(){$('#a-ffrom').value='';$('#a-fto').value='';renderAdmin()};
+$('#a-ffrom').addEventListener('change',function(){
+  if(!LOAD_FULL && this.value) toast('查詢更早的已結案，請先按「載入全部」');
+});
 document.querySelectorAll('.sortbtn').forEach(function(b){b.onclick=function(){
   document.querySelectorAll('.sortbtn').forEach(function(x){x.classList.remove('active')});
   b.classList.add('active');SORT=b.dataset.sort;renderAdmin();
 }});
-$('#a-refresh').onclick=function(){api({action:'adminList',adminKey:ADMIN_KEY}).then(function(r){ADMIN_DATA=r.list;renderAdmin()})};
+function reloadAdmin(limit,msg){
+  showLoading(msg||'更新案件中…');
+  return api({action:'adminList',adminKey:ADMIN_KEY,limit:limit})
+    .then(function(r){ADMIN_DATA=r.list||[];setScope(r);renderAdmin();hideLoading()})
+    .catch(function(e){hideLoading();toast('更新失敗：'+e.message)});
+}
+$('#a-refresh').onclick=function(){reloadAdmin(LOAD_FULL?0:ADMIN_LIMIT)};
+$('#a-loadall').onclick=function(){reloadAdmin(0,'載入全部案件中…')};
 
 function adminFiltered(){
   var st=$('#a-fstatus').value, su=$('#a-fsuper').value, kw=$('#a-fkw').value.trim();
@@ -782,20 +822,22 @@ $('#set-equip-save').onclick=function(){
 };
 /* ====== 督導 Email ====== */
 var EMAIL_INPUTS=[];
+function fillEmails(emails){
+  var box=$('#em-list');box.innerHTML='';EMAIL_INPUTS=[];
+  emails=emails||{};
+  var sups=(META.supervisors||[]).filter(function(s){return s});
+  if(!sups.length){box.innerHTML='<div class="small">尚無督導（請先在「門市 → 督導 對照」設定督導）</div>';return}
+  sups.forEach(function(su){
+    var wrap=el('div');wrap.style.cssText='display:flex;gap:8px;align-items:center;margin:4px 0';
+    var lab=el('span','chip');lab.appendChild(el('b',null,su));
+    var inp=el('input');inp.type='email';inp.value=emails[su]||'';inp.placeholder='name@example.com';
+    wrap.appendChild(lab);wrap.appendChild(inp);box.appendChild(wrap);
+    EMAIL_INPUTS.push({su:su,inp:inp});
+  });
+}
 function loadEmails(){
-  api({action:'getEmails',adminKey:ADMIN_KEY}).then(function(r){
-    var box=$('#em-list');box.innerHTML='';EMAIL_INPUTS=[];
-    var emails=r.emails||{};
-    var sups=(META.supervisors||[]).filter(function(s){return s});
-    if(!sups.length){box.innerHTML='<div class="small">尚無督導（請先在「門市 → 督導 對照」設定督導）</div>';return}
-    sups.forEach(function(su){
-      var wrap=el('div');wrap.style.cssText='display:flex;gap:8px;align-items:center;margin:4px 0';
-      var lab=el('span','chip');lab.appendChild(el('b',null,su));
-      var inp=el('input');inp.type='email';inp.value=emails[su]||'';inp.placeholder='name@example.com';
-      wrap.appendChild(lab);wrap.appendChild(inp);box.appendChild(wrap);
-      EMAIL_INPUTS.push({su:su,inp:inp});
-    });
-  }).catch(function(e){toast('載入督導 Email 失敗：'+e.message)});
+  api({action:'getEmails',adminKey:ADMIN_KEY}).then(function(r){fillEmails(r.emails)})
+    .catch(function(e){toast('載入督導 Email 失敗：'+e.message)});
 }
 $('#em-save').onclick=function(){
   var emails={};EMAIL_INPUTS.forEach(function(e){var v=e.inp.value.trim();if(v)emails[e.su]=v});
@@ -805,20 +847,22 @@ $('#em-save').onclick=function(){
 
 /* ====== 單位（部門）Email ====== */
 var UNIT_EMAIL_INPUTS=[];
+function fillUnitEmails(emails){
+  var box=$('#ue-list');box.innerHTML='';UNIT_EMAIL_INPUTS=[];
+  emails=emails||{};
+  var units=(META.units||[]).filter(function(u){return u});
+  if(!units.length){box.innerHTML='<div class="small">尚無單位</div>';return}
+  units.forEach(function(u){
+    var wrap=el('div');wrap.style.cssText='display:flex;gap:8px;align-items:center;margin:4px 0';
+    var lab=el('span','chip');lab.appendChild(el('b',null,u));
+    var inp=el('input');inp.value=emails[u]||'';inp.placeholder='多位用逗號分隔';
+    wrap.appendChild(lab);wrap.appendChild(inp);box.appendChild(wrap);
+    UNIT_EMAIL_INPUTS.push({unit:u,inp:inp});
+  });
+}
 function loadUnitEmails(){
-  api({action:'getUnitEmails',adminKey:ADMIN_KEY}).then(function(r){
-    var box=$('#ue-list');box.innerHTML='';UNIT_EMAIL_INPUTS=[];
-    var emails=r.emails||{};
-    var units=(META.units||[]).filter(function(u){return u});
-    if(!units.length){box.innerHTML='<div class="small">尚無單位</div>';return}
-    units.forEach(function(u){
-      var wrap=el('div');wrap.style.cssText='display:flex;gap:8px;align-items:center;margin:4px 0';
-      var lab=el('span','chip');lab.appendChild(el('b',null,u));
-      var inp=el('input');inp.value=emails[u]||'';inp.placeholder='多位用逗號分隔';
-      wrap.appendChild(lab);wrap.appendChild(inp);box.appendChild(wrap);
-      UNIT_EMAIL_INPUTS.push({unit:u,inp:inp});
-    });
-  }).catch(function(e){toast('載入單位 Email 失敗：'+e.message)});
+  api({action:'getUnitEmails',adminKey:ADMIN_KEY}).then(function(r){fillUnitEmails(r.emails)})
+    .catch(function(e){toast('載入單位 Email 失敗：'+e.message)});
 }
 $('#ue-save').onclick=function(){
   var emails={};UNIT_EMAIL_INPUTS.forEach(function(e){var v=e.inp.value.trim();if(v)emails[e.unit]=v});
@@ -827,15 +871,17 @@ $('#ue-save').onclick=function(){
 };
 
 /* ====== LINE ====== */
+function fillLine(r){
+  r=r||{};
+  $('#ln-fallback').value=r.fallback||''; $('#ln-link').value=r.link||'';
+  $('#ln-token').placeholder=r.tokenSet?'已設定（留空＝不變更）':'尚未設定，請貼上 token';
+  if(r.lastPush){
+    var lp=r.lastPush;
+    $('#ln-last').textContent='上次推播：'+fmtDate(lp.at)+'　HTTP '+lp.code+(lp.code===200?' ✅':' ❌')+'　對象 '+(lp.to||'(廣播)')+(lp.note?'（'+lp.note+'）':'');
+  }
+}
 function loadLine(){
-  api({action:'getLine',adminKey:ADMIN_KEY}).then(function(r){
-    $('#ln-fallback').value=r.fallback||''; $('#ln-link').value=r.link||'';
-    $('#ln-token').placeholder=r.tokenSet?'已設定（留空＝不變更）':'尚未設定，請貼上 token';
-    if(r.lastPush){
-      var lp=r.lastPush;
-      $('#ln-last').textContent='上次推播：'+fmtDate(lp.at)+'　HTTP '+lp.code+(lp.code===200?' ✅':' ❌')+'　對象 '+(lp.to||'(廣播)')+(lp.note?'（'+lp.note+'）':'');
-    }
-  });
+  api({action:'getLine',adminKey:ADMIN_KEY}).then(fillLine).catch(function(){});
 }
 $('#ln-save').onclick=function(){
   // 不再依督導分流，groups 清空 → 後端一律推播到下方群組
