@@ -424,9 +424,9 @@ function onStoreChange(){
   $('#f-supervisor').innerHTML='負責督導：'+esc(sup)+
     (ad?('　｜　門市地址：'+esc(ad)):'')+
     (ph?('　｜　門市電話：'+esc(ph)):'');
-  // 自動帶入門市電話：空白或還停留在前一家帶入的值時才覆蓋（人工改過就不動）
-  var el=$('#f-phone'), cur=(el.value||'').trim();
-  if(ph&&(cur===''||cur===lastAutoPhone)){ el.value=ph; lastAutoPhone=ph; }
+  // 直接帶入該門市的電話（要改再自己改；換門市就換成新門市的電話）
+  var el=$('#f-phone');
+  if(ph){ el.value=ph; lastAutoPhone=ph; }
 }
 $('#f-store').onchange=onStoreChange;
 
@@ -736,7 +736,9 @@ function esc(s){var d=document.createElement('div');d.textContent=s||'';return d
 // 案件資訊組成逐列文字（複製貼到 LINE 與廠商溝通用）
 function caseCopyText_(c){
   var rows=[
-    ['案號',c.id],['門市',c.store],['督導',c.supervisor||'-'],
+    ['案號',c.id],['門市',c.store],
+    ['門市開幕日',((META&&META.opens)||{})[c.store]||'-'],
+    ['督導',c.supervisor||'-'],
     ['報修項目',c.equipment],['設備編號',c.equipNo||'-'],['區域',c.zone||'-'],
     ['相關單位',c.handleUnit||'-'],['聯絡人',c.contact||'-'],['聯絡電話',c.phone||'-'],
     ['門市地址',((META&&META.addrs)||{})[c.store]||'-'],

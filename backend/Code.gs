@@ -141,6 +141,9 @@ function meta_() {
     statuses: STATUS,
     regions: storeRegions_(),          // {門市:區域}（來源＝門店資料表，設定頁可手動改）
     regionOrder: regionOrder_(),       // 區域顯示順序（門市下拉分組用）
+    phones: storeInfo_('STORE_PHONES'),// {門市:門市電話}（登記時自動帶入）
+    addrs: storeInfo_('STORE_ADDRS'),  // {門市:門市地址}（登記／通知顯示）
+    opens: storeInfo_('STORE_OPENS'),  // {門市:開幕日}（案件資訊顯示）
     syncAt: prop_('STORE_SYNC_AT') || ''
   };
 }
@@ -148,6 +151,20 @@ function directory_() {
   var raw = prop_('STORE_DIRECTORY');
   if (raw) { try { var o = JSON.parse(raw); if (o && Object.keys(o).length) return o; } catch (e) {} }
   return DEFAULT_DIRECTORY;
+}
+// 門市 → 電話／地址（Script Properties: STORE_PHONES / STORE_ADDRS，來源＝門店資料表）
+function storeInfo_(key) {
+  var raw = prop_(key);
+  if (raw) { try { var o = JSON.parse(raw); if (o && typeof o === 'object') return o; } catch (e) {} }
+  return {};
+}
+// 查某門市的電話／地址（比對忽略「店」字尾）
+function infoOf_(key, store) {
+  var map = storeInfo_(key);
+  if (map[store]) return map[store];
+  var n = normStore_(store);
+  var hit = Object.keys(map).filter(function (k) { return normStore_(k) === n; })[0];
+  return hit ? map[hit] : '';
 }
 // 門市 → 區域（Script Properties: STORE_REGIONS；來源＝門店資料表，設定頁可手動調整）
 function storeRegions_() {
@@ -504,6 +521,8 @@ function lineText_(kind, o, from, to) {
     '問題：' + truncate_(o.description, 60)
   ];
   if (o.contact || o.phone) lines.push('聯絡：' + (o.contact || '') + (o.phone ? ' / ' + o.phone : ''));
+  var addr = infoOf_('STORE_ADDRS', o.store);
+  if (addr) lines.push('地址：' + addr);
   if (kind !== 'new' && from) lines.push('狀態：' + from + ' → ' + to);
   else lines.push('狀態：' + (o.status || to));
   if (o.handleUnit) lines.push('相關單位：' + o.handleUnit);
@@ -577,12 +596,21 @@ function masterSheet_() {
 // 讀主檔門市清單 → [{name, sup, region}]（同門市直營／加盟兩列只取一筆；標題列自動偵測）
 function masterStores_() {
   var values = masterSheet_().getDataRange().getValues();
-  var hr = -1, cStore = -1, cSup = -1, cRegion = -1;
+  var hr = -1, cStore = -1, cSup = -1, cRegion = -1, cPhone = -1, cAddr = -1, cOpen = -1;
   for (var i = 0; i < Math.min(values.length, 12); i++) {
     var row = values[i].map(function (x) { return String(x == null ? '' : x).replace(/\s/g, ''); });
     var si = row.indexOf('門市');
     var pi = row.map(function (x) { return x.indexOf('督導') >= 0; }).indexOf(true);
-    if (si >= 0 && pi >= 0) { hr = i; cStore = si; cSup = pi; cRegion = row.indexOf('區域'); break; }
+    if (si >= 0 && pi >= 0) {
+      hr = i; cStore = si; cSup = pi; cRegion = row.indexOf('區域');
+      // 電話／地址：優先抓「門市電話」「門市店址」
+      cPhone = row.indexOf('門市電話');
+      if (cPhone < 0) cPhone = row.map(function (x) { return x.indexOf('電話') >= 0; }).indexOf(true);
+      cAddr = row.indexOf('門市店址');
+      if (cAddr < 0) cAddr = row.map(function (x) { return x.indexOf('店址') >= 0 || x.indexOf('地址') >= 0; }).indexOf(true);
+      cOpen = row.indexOf('開幕日');
+      break;
+    }
   }
   if (hr < 0) throw new Error('門店資料表找不到「門市」與「督導」欄位（請確認分頁 gid）');
   var out = [], idx = {};
@@ -591,13 +619,30 @@ function masterStores_() {
     if (!name) continue;
     var sup = String(values[r][cSup] == null ? '' : values[r][cSup]).replace(/\s+/g, ' ').trim();
     var region = cRegion >= 0 ? String(values[r][cRegion] == null ? '' : values[r][cRegion]).replace(/\s+/g, ' ').trim() : '';
+    var phone = cPhone >= 0 ? String(values[r][cPhone] == null ? '' : values[r][cPhone]).replace(/\s+/g, ' ').trim() : '';
+    var addr  = cAddr  >= 0 ? String(values[r][cAddr]  == null ? '' : values[r][cAddr]).replace(/\s+/g, ' ').trim() : '';
+    var open  = cOpen  >= 0 ? fmtSheetDate_(values[r][cOpen]) : '';
     var key = normStore_(name);
-    if (idx[key]) { if (sup && !idx[key].sup) idx[key].sup = sup; continue; }
-    var rec = { name: name, sup: sup, region: region };
+    if (idx[key]) {
+      if (sup && !idx[key].sup) idx[key].sup = sup;
+      if (phone && !idx[key].phone) idx[key].phone = phone;
+      if (addr && !idx[key].addr) idx[key].addr = addr;
+      if (open && !idx[key].open) idx[key].open = open;
+      continue;
+    }
+    var rec = { name: name, sup: sup, region: region, phone: phone, addr: addr, open: open };
     idx[key] = rec; out.push(rec);
   }
   if (!out.length) throw new Error('門店資料表沒有讀到任何門市');
   return out;
+}
+// 主檔的日期欄可能是 Date 物件或文字，統一成 yyyy/MM/dd
+function fmtSheetDate_(v) {
+  if (v == null || v === '') return '';
+  if (Object.prototype.toString.call(v) === '[object Date]') {
+    return Utilities.formatDate(v, 'Asia/Taipei', 'yyyy/MM/dd');
+  }
+  return String(v).replace(/\s+/g, ' ').trim();
 }
 // 門市名稱正規化（各系統有的帶「店」字尾、有的沒有，比對時一律去掉）
 function normStore_(s) { return String(s == null ? '' : s).trim().replace(/店$/, ''); }
@@ -608,6 +653,7 @@ function syncStoresFromMaster_(body) {
   Object.keys(dir).forEach(function (k) { out[k] = dir[k]; });
   var reg = storeRegions_(), regOut = {}, order = [], seenReg = {};
   Object.keys(reg).forEach(function (k) { regOut[k] = reg[k]; });
+  var phoneOut = storeInfo_('STORE_PHONES'), addrOut = storeInfo_('STORE_ADDRS'), openOut = storeInfo_('STORE_OPENS');
   var idx = {};
   Object.keys(out).forEach(function (k) { idx[normStore_(k)] = k; });
   var added = [], changed = [], moved = [], seen = {};
@@ -623,7 +669,13 @@ function syncStoresFromMaster_(body) {
       regOut[name] = rec.region;
       if (!seenReg[rec.region]) { seenReg[rec.region] = 1; order.push(rec.region); }
     }
+    if (rec.phone) phoneOut[name] = rec.phone;
+    if (rec.addr)  addrOut[name]  = rec.addr;
+    if (rec.open)  openOut[name]  = rec.open;
   });
+  setProp_('STORE_PHONES', JSON.stringify(phoneOut));
+  setProp_('STORE_ADDRS', JSON.stringify(addrOut));
+  setProp_('STORE_OPENS', JSON.stringify(openOut));
   setProp_('STORE_REGIONS', JSON.stringify(regOut));
   if (order.length) setProp_('REGION_ORDER', JSON.stringify(order));
   var onlyHere = Object.keys(idx).filter(function (k) { return !seen[k]; }).map(function (k) { return idx[k]; });
