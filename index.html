@@ -60,7 +60,7 @@
   img.thumb{cursor:zoom-in}
   .photo-item{display:inline-flex;flex-direction:column;align-items:center;margin:4px 6px 0 0;vertical-align:top}
   .photo-zoom{font-size:12px;color:var(--green);margin-top:2px;cursor:pointer;text-decoration:underline}
-  .copybox{white-space:pre-wrap;background:#F7F6F3;border:1px solid var(--line);border-radius:6px;padding:12px 14px;font-size:14px;line-height:1.7;margin:6px 0;-webkit-user-select:all;user-select:all}
+  .copybox{white-space:pre-wrap;background:#F7F6F3;border:1px solid var(--line);border-radius:6px;padding:12px 14px;font-size:14px;line-height:1.7;margin:6px 0;-webkit-user-select:text;user-select:text;cursor:text}
   .lightbox{position:fixed;inset:0;background:rgba(0,0,0,.9);display:none;align-items:center;justify-content:center;z-index:60;padding:16px}
   .lightbox.open{display:flex}
   .lightbox img{max-width:100%;max-height:calc(100% - 60px);object-fit:contain;border-radius:4px}
@@ -417,9 +417,16 @@ function fillOptions(sel,arr,ph){
   if(ph) sel.appendChild(new Option(ph,''));
   arr.forEach(function(o){ if(o!=='') sel.appendChild(new Option(o,o)); else if(!ph) sel.appendChild(new Option('（暫不指定）','')); });
 }
+var lastAutoPhone='';
 function onStoreChange(){
   var s=$('#f-store').value; var sup=(META.directory[s]||'—');
-  $('#f-supervisor').textContent='負責督導：'+sup;
+  var ph=(META.phones||{})[s]||'', ad=(META.addrs||{})[s]||'';
+  $('#f-supervisor').innerHTML='負責督導：'+esc(sup)+
+    (ad?('　｜　門市地址：'+esc(ad)):'')+
+    (ph?('　｜　門市電話：'+esc(ph)):'');
+  // 自動帶入門市電話：空白或還停留在前一家帶入的值時才覆蓋（人工改過就不動）
+  var el=$('#f-phone'), cur=(el.value||'').trim();
+  if(ph&&(cur===''||cur===lastAutoPhone)){ el.value=ph; lastAutoPhone=ph; }
 }
 $('#f-store').onchange=onStoreChange;
 
@@ -669,7 +676,8 @@ function openAdminEdit(c){
   // 逐列資訊（方便複製貼到 LINE 與廠商溝通）
   var info=el('div','copybox');info.id='case-copy';info.textContent=caseCopyText_(c);
   b.appendChild(info);
-  var copyBtn=el('button','btn sec sm','📋 複製案件資訊');copyBtn.style.marginBottom='6px';
+  var copyBtn=el('button','btn sec sm','📋 複製全部案件資訊');copyBtn.style.marginBottom='6px';
+  copyBtn.title='也可以直接用滑鼠在下方框選要複製的部分';
   copyBtn.onclick=function(){copyText_(caseCopyText_(c))};
   b.appendChild(copyBtn);
 
@@ -731,6 +739,7 @@ function caseCopyText_(c){
     ['案號',c.id],['門市',c.store],['督導',c.supervisor||'-'],
     ['報修項目',c.equipment],['設備編號',c.equipNo||'-'],['區域',c.zone||'-'],
     ['相關單位',c.handleUnit||'-'],['聯絡人',c.contact||'-'],['聯絡電話',c.phone||'-'],
+    ['門市地址',((META&&META.addrs)||{})[c.store]||'-'],
     ['發生日',c.occurDate||'-'],['登記時間',fmtDate(c.createdAt)],['目前狀態',c.status],
     ['問題描述',c.description||'-']
   ];
