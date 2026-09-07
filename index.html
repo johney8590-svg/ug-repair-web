@@ -289,7 +289,7 @@ var API_BASE = 'https://script.google.com/macros/s/AKfycbwF7YapsErRssEKCC_Nkcxdl
 var API_TOKEN = 'rp_8sK2mVq7Xz4Pd';      // 門市端共用 token，需與後端 Script Properties API_TOKEN 一致
 var ADMIN_GATE_KEY = 'UGfix-7Q2x9';      // 網址 ?m=此值 才顯示管理分頁（僅降低曝光，真正驗證在後端密碼）
 var LIFF_ID = '';                        // 若要當 LIFF 用，填 LINE LIFF ID（選填）
-var VERSION = 'v1.8';
+var VERSION = 'v1.9';
 var ADMIN_LIMIT = 300;   // 首次只載最新 300 筆；未結案不論多舊一律帶回（後端保證）
 
 /* ====== 狀態 ====== */
@@ -321,7 +321,7 @@ document.querySelectorAll('nav button').forEach(function(b){
 });
 
 /* ====== 初始化 ====== */
-var IS_ADMIN=false, PENDING_CASE='';
+var IS_ADMIN=false, PENDING_CASE='', FOCUS_MODE=false;
 function init(){
   $('#ver').textContent=VERSION;
   var q=new URLSearchParams(location.search);
@@ -389,7 +389,11 @@ function openPendingCase(){
   if(!PENDING_CASE) return;
   var id=PENDING_CASE; PENDING_CASE='';
   var c=ADMIN_DATA.filter(function(x){return String(x.id)===String(id)})[0];
-  if(c) openAdminEdit(c); else toast('找不到案件 '+id);
+  if(!c){toast('找不到案件 '+id);return;}
+  FOCUS_MODE=true;                                   // 從 Email 連結進來：只顯示這一筆
+  var nav=document.querySelector('nav'); if(nav) nav.style.display='none';
+  $('#page-admin').classList.remove('active');
+  openAdminEdit(c);
 }
 function fillStores(sel,withBlank){
   sel.innerHTML='';
@@ -912,7 +916,14 @@ $('#ln-cap').onclick=function(){
 
 /* ====== modal ====== */
 function openModal(){$('#modal').classList.add('open')}
-function closeModal(){$('#modal').classList.remove('open')}
+function closeModal(){
+  $('#modal').classList.remove('open');
+  if(FOCUS_MODE){                                    // 單筆聚焦模式關閉 → 還原分頁並顯示清單
+    FOCUS_MODE=false;
+    var nav=document.querySelector('nav'); if(nav) nav.style.display='';
+    $('#page-admin').classList.add('active');
+  }
+}
 $('#modal').onclick=function(e){if(e.target===this)closeModal()};
 
 /* ====== 照片放大燈箱（可左右切換、下載）====== */
