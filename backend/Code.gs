@@ -535,9 +535,9 @@ function lineText_(kind, o, from, to) {
     '設備：' + o.equipment,
     '問題：' + truncate_(o.description, 60)
   ];
-  var isNew = (kind === 'new');   // 只有新案顯示「聯絡」「相關單位」；後續狀態／進度通知精簡，避免閱讀過雜
+  var isNew = (kind === 'new');   // 只有新案顯示「聯絡」「地址」「相關單位」；後續狀態／進度通知精簡，避免閱讀過雜
   if (isNew && (o.contact || o.phone)) lines.push('聯絡：' + (o.contact || '') + (o.phone ? ' / ' + o.phone : ''));
-  var addr = infoOf_('STORE_ADDRS', o.store);
+  var addr = isNew ? infoOf_('STORE_ADDRS', o.store) : '';   // 地址也只在新案顯示
   if (addr) lines.push('地址：' + addr);
   if (kind !== 'new' && kind !== 'progress' && from) lines.push('狀態：' + from + ' → ' + to);
   else lines.push('狀態：' + (o.status || to));
