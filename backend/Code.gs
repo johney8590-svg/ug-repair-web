@@ -95,6 +95,8 @@ function doPost(e) {
       case 'saveEmails':     requireAdmin_(body); return ok_(saveEmails_(body));
       case 'getUnitEmails':  requireAdmin_(body); return ok_({ emails: unitEmails_() });
       case 'saveUnitEmails': requireAdmin_(body); return ok_(saveUnitEmails_(body));
+      case 'getStoreEmails': requireAdmin_(body); return ok_({ emails: storeInfo_('STORE_EMAILS') });   // 門市 → 加盟主 Email
+      case 'saveStoreEmails':requireAdmin_(body); return ok_(saveStoreEmails_(body));
       case 'saveLine':       requireAdmin_(body); return ok_(saveLine_(body));
       case 'getLine':        requireAdmin_(body); return ok_(getLine_());
       case 'pushTest':       requireAdmin_(body); return ok_(pushTest_(body));
@@ -294,30 +296,41 @@ function updateRepair_(body) {
         setCell_(sh, r, 'statusHistory', JSON.stringify(hist));
       }
 
-      // 推播：每次狀態改變都通知群組
-      if (statusChanged) {
-        obj.status = newStatus;
-        obj.handleUnit = body.handleUnit != null ? body.handleUnit : obj.handleUnit;
-        obj.progressNote = body.progressNote != null ? body.progressNote : obj.progressNote;
-        var kind = newStatus === STATUS_DISCUSS ? 'discuss'
-                 : newStatus === STATUS_CLOSED ? 'closed'
-                 : newStatus === STATUS_UNIT ? 'unit' : 'status';
-        pushLineForStore_(obj.supervisor, lineText_(kind, obj, oldStatus, newStatus));
-      }
-
-      // Email 通知：處理進度 / 修繕部門處理確認 有新增或變更 → 寄信給該案件督導
+      // 本次「處理進度／說明」「修繕部門處理確認」有新增或變更的內容（LINE 與 Email 共用）
       var changes = [];
       if (body.progressNote != null && String(body.progressNote) !== oldProgress && String(body.progressNote).trim())
         changes.push(['處理進度 / 說明', String(body.progressNote)]);
       if (body.repairConfirm != null && String(body.repairConfirm) !== oldRepair && String(body.repairConfirm).trim())
         changes.push(['修繕部門處理確認', String(body.repairConfirm)]);
+
+      // 物件帶入本次更新後的內容（推播／寄信用）
+      obj.status = newStatus;
+      obj.handleUnit = body.handleUnit != null ? body.handleUnit : obj.handleUnit;
+      obj.progressNote = body.progressNote != null ? body.progressNote : obj.progressNote;
+      obj.repairConfirm = body.repairConfirm != null ? body.repairConfirm : obj.repairConfirm;
+      if (newStatus === STATUS_CLOSED && !obj.closeDate) obj.closeDate = ymd_(now);
+
+      // LINE 推播：狀態改變，或「處理進度／修繕確認」有更新（狀態沒變也推）→ 一次只推一則
+      var pushed = false;
+      if (statusChanged || changes.length) {
+        var kind = !statusChanged ? 'progress'
+                 : newStatus === STATUS_DISCUSS ? 'discuss'
+                 : newStatus === STATUS_CLOSED ? 'closed'
+                 : newStatus === STATUS_UNIT ? 'unit' : 'status';
+        pushLineForStore_(obj.supervisor, lineText_(kind, obj, oldStatus, newStatus));
+        pushed = true;
+      }
+
+      // Email 通知：處理進度 / 修繕部門處理確認 有新增或變更 → 寄信給該案件督導
       var emailRes = { emailed: false };
       if (changes.length) {
-        obj.status = newStatus;
-        obj.handleUnit = body.handleUnit != null ? body.handleUnit : obj.handleUnit;
-        obj.progressNote = body.progressNote != null ? body.progressNote : obj.progressNote;
-        obj.repairConfirm = body.repairConfirm != null ? body.repairConfirm : obj.repairConfirm;
         try { emailRes = emailNotify_(obj, changes); } catch (e) { emailRes = { emailed: false, reason: String(e) }; }
+      }
+
+      // 狀態改為「處理中」或「已結案」→ Email 通知該門市加盟主
+      var fzRes = { fzEmailed: false };
+      if (statusChanged && FRANCHISEE_NOTIFY_STATUS.indexOf(newStatus) >= 0) {
+        try { fzRes = franchiseeEmailNotify_(obj); } catch (e) { fzRes = { fzEmailed: false, fzReason: String(e) }; }
       }
 
       // 更換負責單位 → Email 通知新接手的部門
@@ -327,7 +340,8 @@ function updateRepair_(body) {
         obj.status = newStatus;
         try { unitRes = unitEmailNotify_(obj, '更換負責單位'); } catch (e) { unitRes = { unitEmailed: false, unitReason: String(e) }; }
       }
-      return { id: id, status: newStatus, notified: statusChanged, emailed: emailRes.emailed, emailTo: emailRes.to || '', emailReason: emailRes.reason || '', unitEmailed: unitRes.unitEmailed, unitTo: unitRes.unitTo || '' };
+      return { id: id, status: newStatus, notified: pushed, emailed: emailRes.emailed, emailTo: emailRes.to || '', emailReason: emailRes.reason || '', unitEmailed: unitRes.unitEmailed, unitTo: unitRes.unitTo || '',
+               fzEmailed: fzRes.fzEmailed, fzTo: fzRes.fzTo || '', fzReason: fzRes.fzReason || '' };
     }
   }
   throw new Error('找不到案件 ' + id);
@@ -513,6 +527,7 @@ function lineText_(kind, o, from, to) {
            : kind === 'discuss' ? '⚠️ 待討論／無法修繕'
            : kind === 'closed'  ? '✅ 已結案'
            : kind === 'unit'    ? '🔁 更換負責單位'
+           : kind === 'progress'? '📝 處理進度更新'
            : '🔧 進度更新';
   var lines = [
     head,
@@ -523,10 +538,13 @@ function lineText_(kind, o, from, to) {
   if (o.contact || o.phone) lines.push('聯絡：' + (o.contact || '') + (o.phone ? ' / ' + o.phone : ''));
   var addr = infoOf_('STORE_ADDRS', o.store);
   if (addr) lines.push('地址：' + addr);
-  if (kind !== 'new' && from) lines.push('狀態：' + from + ' → ' + to);
+  if (kind !== 'new' && kind !== 'progress' && from) lines.push('狀態：' + from + ' → ' + to);
   else lines.push('狀態：' + (o.status || to));
   if (o.handleUnit) lines.push('相關單位：' + o.handleUnit);
-  if (o.progressNote) lines.push('說明：' + truncate_(o.progressNote, 80));
+  // 處理進度 / 修繕確認：新案不會有；其餘通知完整帶出（過長才截斷，LINE 單則上限 5000 字）
+  if (o.progressNote)  lines.push('處理進度／說明：' + truncate_(o.progressNote, 500));
+  if (o.repairConfirm) lines.push('修繕部門確認：' + truncate_(o.repairConfirm, 300));
+  if (kind === 'closed' && o.closeDate) lines.push('結案日：' + fmtYmd_(o.closeDate));
   if (cfg.link) lines.push('查看：' + cfg.link);
   return lines.join('\n');
 }
@@ -596,7 +614,7 @@ function masterSheet_() {
 // 讀主檔門市清單 → [{name, sup, region}]（同門市直營／加盟兩列只取一筆；標題列自動偵測）
 function masterStores_() {
   var values = masterSheet_().getDataRange().getValues();
-  var hr = -1, cStore = -1, cSup = -1, cRegion = -1, cPhone = -1, cAddr = -1, cOpen = -1;
+  var hr = -1, cStore = -1, cSup = -1, cRegion = -1, cPhone = -1, cAddr = -1, cOpen = -1, cMail = -1;
   for (var i = 0; i < Math.min(values.length, 12); i++) {
     var row = values[i].map(function (x) { return String(x == null ? '' : x).replace(/\s/g, ''); });
     var si = row.indexOf('門市');
@@ -609,6 +627,10 @@ function masterStores_() {
       cAddr = row.indexOf('門市店址');
       if (cAddr < 0) cAddr = row.map(function (x) { return x.indexOf('店址') >= 0 || x.indexOf('地址') >= 0; }).indexOf(true);
       cOpen = row.indexOf('開幕日');
+      // 加盟主 Email：優先「加盟主」相關的 Email／信箱欄，其次任何 Email／信箱欄
+      var isMail = function (x) { return /mail|信箱/i.test(x); };
+      cMail = row.map(function (x) { return isMail(x) && x.indexOf('加盟') >= 0; }).indexOf(true);
+      if (cMail < 0) cMail = row.map(isMail).indexOf(true);
       break;
     }
   }
@@ -622,15 +644,17 @@ function masterStores_() {
     var phone = cPhone >= 0 ? String(values[r][cPhone] == null ? '' : values[r][cPhone]).replace(/\s+/g, ' ').trim() : '';
     var addr  = cAddr  >= 0 ? String(values[r][cAddr]  == null ? '' : values[r][cAddr]).replace(/\s+/g, ' ').trim() : '';
     var open  = cOpen  >= 0 ? fmtSheetDate_(values[r][cOpen]) : '';
+    var mail  = cMail  >= 0 ? String(values[r][cMail] == null ? '' : values[r][cMail]).replace(/\s+/g, ' ').trim() : '';
     var key = normStore_(name);
     if (idx[key]) {
       if (sup && !idx[key].sup) idx[key].sup = sup;
       if (phone && !idx[key].phone) idx[key].phone = phone;
       if (addr && !idx[key].addr) idx[key].addr = addr;
       if (open && !idx[key].open) idx[key].open = open;
+      if (mail && !idx[key].mail) idx[key].mail = mail;
       continue;
     }
-    var rec = { name: name, sup: sup, region: region, phone: phone, addr: addr, open: open };
+    var rec = { name: name, sup: sup, region: region, phone: phone, addr: addr, open: open, mail: mail };
     idx[key] = rec; out.push(rec);
   }
   if (!out.length) throw new Error('門店資料表沒有讀到任何門市');
@@ -654,6 +678,7 @@ function syncStoresFromMaster_(body) {
   var reg = storeRegions_(), regOut = {}, order = [], seenReg = {};
   Object.keys(reg).forEach(function (k) { regOut[k] = reg[k]; });
   var phoneOut = storeInfo_('STORE_PHONES'), addrOut = storeInfo_('STORE_ADDRS'), openOut = storeInfo_('STORE_OPENS');
+  var mailOut = storeInfo_('STORE_EMAILS');   // 主檔有填才覆蓋；主檔空白則保留設定頁手動填的
   var idx = {};
   Object.keys(out).forEach(function (k) { idx[normStore_(k)] = k; });
   var added = [], changed = [], moved = [], seen = {};
@@ -672,7 +697,9 @@ function syncStoresFromMaster_(body) {
     if (rec.phone) phoneOut[name] = rec.phone;
     if (rec.addr)  addrOut[name]  = rec.addr;
     if (rec.open)  openOut[name]  = rec.open;
+    if (rec.mail)  mailOut[name]  = rec.mail;
   });
+  setProp_('STORE_EMAILS', JSON.stringify(mailOut));
   setProp_('STORE_PHONES', JSON.stringify(phoneOut));
   setProp_('STORE_ADDRS', JSON.stringify(addrOut));
   setProp_('STORE_OPENS', JSON.stringify(openOut));
@@ -845,6 +872,71 @@ function emailBodyHtml_(o, changes) {
   h += '<p style="color:#999;font-size:12px;margin-top:16px">（本信由 UG 門市修繕進度系統自動發送）</p></div>';
   return h;
 }
+// ─────────────────────── 加盟主 Email 通知 ───────────────────────
+// 狀態改成以下其中之一時，寄信給該門市加盟主（門市 → Email 存 Script Properties: STORE_EMAILS）
+// 直營門市不填 Email 即不寄。多位收件人用逗號分隔。
+var FRANCHISEE_NOTIFY_STATUS = ['處理中', '已結案'];
+function saveStoreEmails_(body) {
+  if (body.emails != null) {
+    var out = {};
+    Object.keys(body.emails).forEach(function (k) {
+      var v = String(body.emails[k] == null ? '' : body.emails[k]).trim();
+      if (String(k).trim() && v) out[String(k).trim()] = v;
+    });
+    setProp_('STORE_EMAILS', JSON.stringify(out));
+  }
+  return { saved: true };
+}
+function franchiseeEmailNotify_(o) {
+  var to = String(infoOf_('STORE_EMAILS', o.store) || '').trim();
+  if (!to) return { fzEmailed: false, fzReason: '門市「' + o.store + '」未設定加盟主 Email' };
+  var closed = o.status === STATUS_CLOSED;
+  var subject = '【UG修繕｜' + (closed ? '已結案' : '處理中') + '】' + o.store + '｜' + o.equipment;
+  MailApp.sendEmail({ to: to, subject: subject,
+    body: franchiseeBody_(o, closed), htmlBody: franchiseeBodyHtml_(o, closed) });
+  return { fzEmailed: true, fzTo: to };
+}
+// 加盟主版信件：只給對外可看的資訊（不含 Robert 備註、督導確認、管理端連結）
+function franchiseeRows_(o, closed) {
+  var rows = [
+    ['案號', o.id], ['門市', o.store], ['報修項目', o.equipment + (o.equipNo ? '（設備編號 ' + o.equipNo + '）' : '')],
+    ['問題描述', o.description || '-'], ['目前狀態', o.status], ['負責單位', o.handleUnit || '-'],
+    ['處理進度／說明', o.progressNote || '-']
+  ];
+  if (o.repairConfirm) rows.push(['修繕部門確認', o.repairConfirm]);
+  if (closed) rows.push(['結案日', fmtYmd_(o.closeDate) || '-']);
+  rows.push(['區域督導', o.supervisor || '-']);
+  return rows;
+}
+function franchiseeBody_(o, closed) {
+  var L = ['加盟主您好：', '',
+    closed ? '貴門市的修繕案件已完成並結案，內容如下：' : '貴門市的修繕案件已開始處理，內容如下：', ''];
+  franchiseeRows_(o, closed).forEach(function (r) { L.push(r[0] + '：' + r[1]); });
+  L.push(''); L.push('如有任何問題，請聯繫區域督導。');
+  L.push('（本信由 UG 門市修繕進度系統自動發送，請勿直接回覆）');
+  return L.join('\n');
+}
+function franchiseeBodyHtml_(o, closed) {
+  function esc(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\n/g, '<br>'); }
+  var h = '<div style="font-family:sans-serif;font-size:14px;line-height:1.7;color:#2c2c2c">';
+  h += '<p>加盟主您好：</p><p>' + (closed ? '貴門市的修繕案件<b>已完成並結案</b>，內容如下：' : '貴門市的修繕案件<b>已開始處理</b>，內容如下：') + '</p>';
+  h += '<table style="border-collapse:collapse">';
+  franchiseeRows_(o, closed).forEach(function (r) {
+    h += '<tr><td style="padding:2px 12px 2px 0;color:#6b6b6b;white-space:nowrap;vertical-align:top">' + esc(r[0]) + '</td><td style="padding:2px 0">' + esc(r[1]) + '</td></tr>';
+  });
+  h += '</table><p style="margin-top:14px">如有任何問題，請聯繫區域督導。</p>';
+  h += '<p style="color:#999;font-size:12px;margin-top:16px">（本信由 UG 門市修繕進度系統自動發送，請勿直接回覆）</p></div>';
+  return h;
+}
+// 日期欄可能是 ISO 字串或 yyyy-MM-dd，統一顯示 yyyy-MM-dd
+function fmtYmd_(v) {
+  if (!v) return '';
+  var s = String(v);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+  var d = new Date(s);
+  return isNaN(d) ? s : ymd_(d);
+}
+
 // ─────────────────────── 試算表 / 工具 ───────────────────────
 function ss_() {
   var id = prop_('SPREADSHEET_ID');
