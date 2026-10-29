@@ -241,7 +241,7 @@
     </div>
     <div class="card">
       <h2>加盟主 Email 通知</h2>
-      <div class="hint">案件狀態改為<b>「處理中」</b>或<b>「已結案」</b>時，自動寄 Email 給該門市加盟主（含處理進度／說明、修繕確認、結案日；<b>不含</b> Robert 備註與管理端連結）。每行「<b>門市,Email</b>」（Tab 或逗號分隔，可從 Excel 貼上；多位收件人用<b>分號</b>或空白分隔）。直營門市不填即不寄。若「門店資料表_UG」有加盟主 Email 欄，按上方「從門店資料表同步」會自動帶入。</div>
+      <div class="hint">案件狀態改為<b>「處理中」</b>或<b>「已結案」</b>時，自動寄 Email 給該門市加盟主（含處理進度／說明、修繕確認、結案日；<b>不含</b> Robert 備註與管理端連結）。每行「<b>門市,Email</b>」（Tab 或逗號分隔，可從 Excel 貼上；多位收件人用<b>分號</b>或空白分隔）。<b>按上方「🔄 從門店資料表同步」會自動帶入</b>：「門店資料表_UG」中「直營/加盟」＝加盟的門市，取其「門市Email」與「加盟主」姓名；直營門市不寄。這裡也可手動補填或修改。</div>
       <textarea id="fz-list" placeholder="例：&#10;台中大里店&#9;owner@example.com&#10;新竹民生店&#9;a@example.com; b@example.com" style="min-height:160px;font-family:monospace;font-size:13px"></textarea>
       <div style="margin-top:10px"><button class="btn sm" id="fz-save">儲存加盟主 Email</button> <span class="small" id="fz-count"></span></div>
     </div>

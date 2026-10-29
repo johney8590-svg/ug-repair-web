@@ -614,7 +614,7 @@ function masterSheet_() {
 // 讀主檔門市清單 → [{name, sup, region}]（同門市直營／加盟兩列只取一筆；標題列自動偵測）
 function masterStores_() {
   var values = masterSheet_().getDataRange().getValues();
-  var hr = -1, cStore = -1, cSup = -1, cRegion = -1, cPhone = -1, cAddr = -1, cOpen = -1, cMail = -1;
+  var hr = -1, cStore = -1, cSup = -1, cRegion = -1, cPhone = -1, cAddr = -1, cOpen = -1, cMail = -1, cType = -1, cOwner = -1;
   for (var i = 0; i < Math.min(values.length, 12); i++) {
     var row = values[i].map(function (x) { return String(x == null ? '' : x).replace(/\s/g, ''); });
     var si = row.indexOf('門市');
@@ -627,10 +627,14 @@ function masterStores_() {
       cAddr = row.indexOf('門市店址');
       if (cAddr < 0) cAddr = row.map(function (x) { return x.indexOf('店址') >= 0 || x.indexOf('地址') >= 0; }).indexOf(true);
       cOpen = row.indexOf('開幕日');
-      // 加盟主 Email：優先「加盟主」相關的 Email／信箱欄，其次任何 Email／信箱欄
+      // 加盟主 Email：門店資料表的「門市Email」欄（加盟店的店信箱即加盟主收信用）；
+      //   若日後另開「加盟主Email」欄則優先用該欄。只取「直營/加盟」＝加盟 的列。
       var isMail = function (x) { return /mail|信箱/i.test(x); };
       cMail = row.map(function (x) { return isMail(x) && x.indexOf('加盟') >= 0; }).indexOf(true);
+      if (cMail < 0) cMail = row.indexOf('門市Email');
       if (cMail < 0) cMail = row.map(isMail).indexOf(true);
+      cType  = row.map(function (x) { return x.indexOf('直營') >= 0 && x.indexOf('加盟') >= 0; }).indexOf(true);  // 「直營/加盟」
+      cOwner = row.indexOf('加盟主');
       break;
     }
   }
@@ -644,17 +648,25 @@ function masterStores_() {
     var phone = cPhone >= 0 ? String(values[r][cPhone] == null ? '' : values[r][cPhone]).replace(/\s+/g, ' ').trim() : '';
     var addr  = cAddr  >= 0 ? String(values[r][cAddr]  == null ? '' : values[r][cAddr]).replace(/\s+/g, ' ').trim() : '';
     var open  = cOpen  >= 0 ? fmtSheetDate_(values[r][cOpen]) : '';
-    var mail  = cMail  >= 0 ? String(values[r][cMail] == null ? '' : values[r][cMail]).replace(/\s+/g, ' ').trim() : '';
+    var type  = cType  >= 0 ? String(values[r][cType] == null ? '' : values[r][cType]).trim() : '';
+    var isFz  = type.indexOf('加盟') >= 0;
+    var mail  = (isFz && cMail >= 0) ? String(values[r][cMail] == null ? '' : values[r][cMail]).replace(/\s+/g, '').trim() : '';
+    if (mail && mail.indexOf('@') < 0) mail = '';                     // 「--」等空值
+    var owner = (isFz && cOwner >= 0) ? String(values[r][cOwner] == null ? '' : values[r][cOwner]).replace(/\s+/g, ' ').trim() : '';
+    if (owner === '--' || owner === '-') owner = '';
     var key = normStore_(name);
     if (idx[key]) {
       if (sup && !idx[key].sup) idx[key].sup = sup;
       if (phone && !idx[key].phone) idx[key].phone = phone;
       if (addr && !idx[key].addr) idx[key].addr = addr;
       if (open && !idx[key].open) idx[key].open = open;
-      if (mail && !idx[key].mail) idx[key].mail = mail;
+      if (type) idx[key].type = isFz ? '加盟' : (idx[key].type || '直營');   // 同店有加盟列 → 以加盟為準
+      if (mail)  idx[key].mail  = mail;
+      if (owner) idx[key].owner = owner;
       continue;
     }
-    var rec = { name: name, sup: sup, region: region, phone: phone, addr: addr, open: open, mail: mail };
+    var rec = { name: name, sup: sup, region: region, phone: phone, addr: addr, open: open,
+                type: type ? (isFz ? '加盟' : '直營') : '', mail: mail, owner: owner };
     idx[key] = rec; out.push(rec);
   }
   if (!out.length) throw new Error('門店資料表沒有讀到任何門市');
@@ -678,7 +690,9 @@ function syncStoresFromMaster_(body) {
   var reg = storeRegions_(), regOut = {}, order = [], seenReg = {};
   Object.keys(reg).forEach(function (k) { regOut[k] = reg[k]; });
   var phoneOut = storeInfo_('STORE_PHONES'), addrOut = storeInfo_('STORE_ADDRS'), openOut = storeInfo_('STORE_OPENS');
-  var mailOut = storeInfo_('STORE_EMAILS');   // 主檔有填才覆蓋；主檔空白則保留設定頁手動填的
+  // 加盟主 Email／姓名：加盟店以主檔為準；主檔標為直營的店移除（避免轉直營後還寄給前加盟主）；
+  //   主檔沒有的門市保留設定頁手動填的值
+  var mailOut = storeInfo_('STORE_EMAILS'), ownerOut = storeInfo_('STORE_OWNERS');
   var idx = {};
   Object.keys(out).forEach(function (k) { idx[normStore_(k)] = k; });
   var added = [], changed = [], moved = [], seen = {};
@@ -697,9 +711,14 @@ function syncStoresFromMaster_(body) {
     if (rec.phone) phoneOut[name] = rec.phone;
     if (rec.addr)  addrOut[name]  = rec.addr;
     if (rec.open)  openOut[name]  = rec.open;
-    if (rec.mail)  mailOut[name]  = rec.mail;
+    if (rec.type === '直營') { delete mailOut[name]; delete ownerOut[name]; }
+    else if (rec.type === '加盟') {
+      if (rec.mail)  mailOut[name]  = rec.mail;
+      if (rec.owner) ownerOut[name] = rec.owner;
+    }
   });
   setProp_('STORE_EMAILS', JSON.stringify(mailOut));
+  setProp_('STORE_OWNERS', JSON.stringify(ownerOut));
   setProp_('STORE_PHONES', JSON.stringify(phoneOut));
   setProp_('STORE_ADDRS', JSON.stringify(addrOut));
   setProp_('STORE_OPENS', JSON.stringify(openOut));
@@ -909,7 +928,7 @@ function franchiseeRows_(o, closed) {
   return rows;
 }
 function franchiseeBody_(o, closed) {
-  var L = ['加盟主您好：', '',
+  var L = [greet_(o) + '：', '',
     closed ? '貴門市的修繕案件已完成並結案，內容如下：' : '貴門市的修繕案件已開始處理，內容如下：', ''];
   franchiseeRows_(o, closed).forEach(function (r) { L.push(r[0] + '：' + r[1]); });
   L.push(''); L.push('如有任何問題，請聯繫區域督導。');
@@ -919,7 +938,7 @@ function franchiseeBody_(o, closed) {
 function franchiseeBodyHtml_(o, closed) {
   function esc(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\n/g, '<br>'); }
   var h = '<div style="font-family:sans-serif;font-size:14px;line-height:1.7;color:#2c2c2c">';
-  h += '<p>加盟主您好：</p><p>' + (closed ? '貴門市的修繕案件<b>已完成並結案</b>，內容如下：' : '貴門市的修繕案件<b>已開始處理</b>，內容如下：') + '</p>';
+  h += '<p>' + esc(greet_(o)) + '：</p><p>' + (closed ? '貴門市的修繕案件<b>已完成並結案</b>，內容如下：' : '貴門市的修繕案件<b>已開始處理</b>，內容如下：') + '</p>';
   h += '<table style="border-collapse:collapse">';
   franchiseeRows_(o, closed).forEach(function (r) {
     h += '<tr><td style="padding:2px 12px 2px 0;color:#6b6b6b;white-space:nowrap;vertical-align:top">' + esc(r[0]) + '</td><td style="padding:2px 0">' + esc(r[1]) + '</td></tr>';
@@ -927,6 +946,11 @@ function franchiseeBodyHtml_(o, closed) {
   h += '</table><p style="margin-top:14px">如有任何問題，請聯繫區域督導。</p>';
   h += '<p style="color:#999;font-size:12px;margin-top:16px">（本信由 UG 門市修繕進度系統自動發送，請勿直接回覆）</p></div>';
   return h;
+}
+// 信件稱呼：有加盟主姓名就用「○○○ 加盟主您好」
+function greet_(o) {
+  var n = String(infoOf_('STORE_OWNERS', o.store) || '').trim();
+  return n ? (n + ' 加盟主您好') : '加盟主您好';
 }
 // 日期欄可能是 ISO 字串或 yyyy-MM-dd，統一顯示 yyyy-MM-dd
 function fmtYmd_(v) {
