@@ -535,12 +535,13 @@ function lineText_(kind, o, from, to) {
     '設備：' + o.equipment,
     '問題：' + truncate_(o.description, 60)
   ];
-  if (o.contact || o.phone) lines.push('聯絡：' + (o.contact || '') + (o.phone ? ' / ' + o.phone : ''));
+  var isNew = (kind === 'new');   // 只有新案顯示「聯絡」「相關單位」；後續狀態／進度通知精簡，避免閱讀過雜
+  if (isNew && (o.contact || o.phone)) lines.push('聯絡：' + (o.contact || '') + (o.phone ? ' / ' + o.phone : ''));
   var addr = infoOf_('STORE_ADDRS', o.store);
   if (addr) lines.push('地址：' + addr);
   if (kind !== 'new' && kind !== 'progress' && from) lines.push('狀態：' + from + ' → ' + to);
   else lines.push('狀態：' + (o.status || to));
-  if (o.handleUnit) lines.push('相關單位：' + o.handleUnit);
+  if (isNew && o.handleUnit) lines.push('相關單位：' + o.handleUnit);
   // 處理進度 / 修繕確認：新案不會有；其餘通知完整帶出（過長才截斷，LINE 單則上限 5000 字）
   if (o.progressNote)  lines.push('處理進度／說明：' + truncate_(o.progressNote, 500));
   if (o.repairConfirm) lines.push('修繕部門確認：' + truncate_(o.repairConfirm, 300));
