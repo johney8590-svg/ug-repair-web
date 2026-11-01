@@ -216,6 +216,7 @@ function createRepair_(body) {
   if (!contact) throw new Error('門市聯絡人必填');
   if (!phone) throw new Error('聯絡電話必填');
   if (!body.description) throw new Error('問題描述必填');
+  if (!body.attachments || !body.attachments.length) throw new Error('請至少上傳 1 張照片或 1 段影片');
 
   var im = itemMeta_()[item];
   var equipNo = String(body.equipNo || '').trim();

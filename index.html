@@ -100,6 +100,11 @@
   .statgrid{display:flex;gap:16px;flex-wrap:wrap;margin-top:14px}
   .statgrid>div{flex:1;min-width:220px}
   .statgrid h4{margin:0 0 6px;font-size:13px;color:var(--gray);font-weight:600}
+  .fold summary{cursor:pointer;font-size:12px;color:#2e7d5b;font-weight:600;padding:6px 0;list-style:none}
+  .fold summary::-webkit-details-marker{display:none}
+  .fold summary::before{content:'▸ '}
+  .fold[open] summary::before{content:'▾ '}
+  .fold[open] summary{color:var(--gray)}
   table.mini{width:100%;border-collapse:collapse;font-size:13px}
   table.mini th{background:#F5F5F5;font-weight:600;color:#444;text-align:left;padding:6px 8px;font-size:12px}
   table.mini th.n,table.mini td.n{text-align:right;font-variant-numeric:tabular-nums}
@@ -156,7 +161,7 @@
       <label class="req">問題描述</label>
       <textarea id="f-desc" placeholder="請描述故障狀況，例：製二冰槽蓋子滾輪卡住無法開關"></textarea>
 
-      <label>照片／影片（最多 5 個，影片可上傳，選填）</label>
+      <label>照片／影片 <span style="color:#c0392b">*</span>（至少 1 個、最多 5 個，可上傳影片）</label>
       <input type="file" id="f-photos" accept="image/*,video/*" multiple />
       <div class="hint">影片單檔上限 20MB（太大請先用手機壓縮或剪短）。</div>
       <div id="f-preview"></div>
@@ -467,14 +472,15 @@ $('#f-zone').onchange=function(){fillItems(this.value)};
 $('#f-equip').onchange=onItemChange;
 
 /* ====== 照片／影片 ====== */
-var PHOTOS=[];
+var PHOTOS=[], PHOTO_READING=0;
 $('#f-photos').onchange=function(e){
-  PHOTOS=[]; $('#f-preview').innerHTML='';
+  PHOTOS=[]; $('#f-preview').innerHTML=''; $('#f-photos').style.outline='';
   var files=[].slice.call(e.target.files).slice(0,5);
   files.forEach(function(f){
     var isVid=/^video\//.test(f.type);
     if(isVid && f.size>20*1024*1024){ toast('影片「'+f.name+'」超過 20MB，未加入'); return; }
-    var rd=new FileReader();
+    var rd=new FileReader(); PHOTO_READING++;
+    rd.onloadend=function(){ PHOTO_READING--; };
     rd.onload=function(){
       PHOTOS.push({kind:isVid?'video':'photo',mime:f.type,dataUrl:rd.result});
       if(isVid){ var v=el('video','thumb'); v.src=rd.result; v.muted=true; $('#f-preview').appendChild(v); }
@@ -495,6 +501,11 @@ $('#btn-submit').onclick=function(){
   var m=META.itemMeta[item], equipNo=$('#f-equipno').value.trim();
   if(m&&m.need&&!equipNo) return toast('「'+item+'」需填寫設備編號');
   if(!desc) return toast('請填寫問題描述');
+  if(PHOTO_READING>0) return toast('照片／影片讀取中，請稍候再送出');
+  if(!PHOTOS.length){
+    var fp=$('#f-photos'); fp.style.outline='2px solid #c0392b'; fp.scrollIntoView({behavior:'smooth',block:'center'});
+    return toast('請至少上傳 1 張照片或 1 段影片');
+  }
   if(SUBMIT_COOLDOWN) return toast('剛送出過，請稍候再送（避免重複送件）');
   var btn=this; btn.disabled=true; showLoading('案件送出中，請稍候…');
   api({action:'create',token:API_TOKEN,store:store,equipment:item,zone:$('#f-zone').value,equipNo:equipNo,
@@ -667,17 +678,29 @@ function renderStats(list){
     html+='<span class="chip"><span class="badge '+(STATUS_CLASS[s]||'s0')+'">'+esc(s)+'</span>&nbsp;<b>'+n+'</b></span>'});
   html+='</div>';
   html+='<div class="statgrid"><div><h4>各相關單位（部門）次數</h4>'+miniTable(countBy(list,function(c){return c.handleUnit||'（未指定）'}),'單位')
-    +'</div><div><h4>各設備故障次數</h4>'+miniTable(countBy(list,function(c){return c.equipment||'（未填）'}),'設備')+'</div></div>';
+    +'</div><div><h4>各設備故障次數</h4>'+miniTable(countBy(list,function(c){return c.equipment||'（未填）'}),'設備',5,'eq')+'</div></div>';
   $('#a-stats').innerHTML=html;
+  // 記住展開／收合狀態（篩選重算統計時不會又收回去）
+  [].forEach.call(document.querySelectorAll('#a-stats details[data-k]'),function(d){
+    d.addEventListener('toggle',function(){ FOLD_OPEN[d.getAttribute('data-k')]=d.open; });
+  });
 }
 function kpi(n,l,cls){return '<div class="kpi'+(cls?' '+cls:'')+'"><div class="n">'+esc(String(n))+'</div><div class="l">'+esc(l)+'</div></div>'}
 function countBy(list,fn){var m={};list.forEach(function(c){var k=fn(c);m[k]=(m[k]||0)+1});
   return Object.keys(m).map(function(k){return [k,m[k]]}).sort(function(a,b){return b[1]-a[1]})}
-function miniTable(rows,head){
+var FOLD_OPEN={};
+/* limit：只先顯示前 N 名，其餘收在「展開其餘 N 項」裡；key＝記住展開狀態用 */
+function miniTable(rows,head,limit,key){
   if(!rows.length)return '<div class="small">無資料</div>';
-  var h='<table class="mini"><tr><th>'+esc(head)+'</th><th class="n">次數</th></tr>';
-  rows.forEach(function(r){h+='<tr><td>'+esc(r[0])+'</td><td class="n">'+r[1]+'</td></tr>'});
-  return h+'</table>';
+  function tr(r){return '<tr><td>'+esc(r[0])+'</td><td class="n">'+r[1]+'</td></tr>'}
+  var top=limit?rows.slice(0,limit):rows, rest=limit?rows.slice(limit):[];
+  var h='<table class="mini"><tr><th>'+esc(head)+'</th><th class="n">次數</th></tr>'+top.map(tr).join('')+'</table>';
+  if(rest.length){
+    var n=rest.reduce(function(a,r){return a+r[1]},0);
+    h+='<details class="fold" data-k="'+esc(key||head)+'"'+(FOLD_OPEN[key||head]?' open':'')+'><summary>展開其餘 '+rest.length+' 項（共 '+n+' 次）</summary>'
+      +'<table class="mini">'+rest.map(tr).join('')+'</table></details>';
+  }
+  return h;
 }
 function closeDays(c){
   if(!c.createdAt||!c.closeDate)return null;
