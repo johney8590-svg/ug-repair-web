@@ -231,6 +231,12 @@
       <h2>督導 Email 通知</h2>
       <div class="hint">案件管理中「處理進度／說明」或「修繕部門處理確認」<b>有新增或變更</b>時，系統會自動寄 Email 通知該案件的督導。請填每位督導的收件信箱（留空＝該督導不寄信）。門市對應哪位督導，請在上方「門市 → 督導 對照」設定。</div>
       <div id="em-list"></div>
+      <div style="display:flex;gap:8px;align-items:center;margin:10px 0 0;flex-wrap:wrap">
+        <input id="em-new-name" placeholder="新增督導姓名（例：謝怡均 Joyce）" style="flex:1;min-width:180px">
+        <input id="em-new-mail" type="email" placeholder="name@1992sharetea.com" style="flex:1;min-width:180px">
+        <button class="btn sm sec" id="em-add">＋ 新增督導</button>
+      </div>
+      <div class="small" style="margin-top:4px;color:#777">督導名單會自動列出「門市 → 督導 對照」中出現的督導；按上方「🔄 從門店資料表同步」即可帶入新督導。也可以在這裡手動新增。<b>姓名請與對照表的寫法一致</b>（如「謝怡均 Joyce」）。</div>
       <div style="margin-top:10px"><button class="btn sm" id="em-save">儲存督導 Email</button></div>
     </div>
     <div class="card">
@@ -811,7 +817,7 @@ $('#set-dir-sync').onclick=function(){
     var add=r.added||[], chg=r.supervisorChanged||[], peers=r.peers||[];
     // 重新載入 meta 讓門市／督導下拉與設定頁一起更新
     return api({action:'meta',token:API_TOKEN}).then(function(m){
-      META=m; loadSettings(); loadStoreEmails();
+      META=m; loadSettings(); loadStoreEmails(); loadEmails();   // 同步後督導名單也重整（新督導才會出現）
       fillStores($('#f-store')); fillStores($('#m-store'),true);
       var fsu=$('#a-fsuper'); fsu.innerHTML='<option value="">全部督導</option>';
       (META.supervisors||[]).forEach(function(x){ fsu.appendChild(new Option(x,x)) });
@@ -846,11 +852,14 @@ $('#set-equip-save').onclick=function(){
 };
 /* ====== 督導 Email ====== */
 var EMAIL_INPUTS=[];
+var LAST_EMAILS={};
 function fillEmails(emails){
   var box=$('#em-list');box.innerHTML='';EMAIL_INPUTS=[];
-  emails=emails||{};
+  emails=emails||{}; LAST_EMAILS=emails;
+  // 名單＝對照表裡的督導 ＋ 已設定過 Email 的督導（手動新增的也會留著）
   var sups=(META.supervisors||[]).filter(function(s){return s});
-  if(!sups.length){box.innerHTML='<div class="small">尚無督導（請先在「門市 → 督導 對照」設定督導）</div>';return}
+  Object.keys(emails).forEach(function(k){ if(k && sups.indexOf(k)<0) sups.push(k); });
+  if(!sups.length){box.innerHTML='<div class="small">尚無督導，請先同步門店資料表或在下方手動新增</div>';return}
   sups.forEach(function(su){
     var wrap=el('div');wrap.style.cssText='display:flex;gap:8px;align-items:center;margin:4px 0';
     var lab=el('span','chip');lab.appendChild(el('b',null,su));
@@ -867,6 +876,17 @@ $('#em-save').onclick=function(){
   var emails={};EMAIL_INPUTS.forEach(function(e){var v=e.inp.value.trim();if(v)emails[e.su]=v});
   api({action:'saveEmails',adminKey:ADMIN_KEY,emails:emails})
     .then(function(){toast('督導 Email 已儲存')}).catch(function(e){toast(e.message)});
+};
+
+$('#em-add').onclick=function(){
+  var n=$('#em-new-name').value.replace(/\s+/g,' ').trim(), m=$('#em-new-mail').value.trim();
+  if(!n){toast('請輸入督導姓名');return}
+  if(m && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(m)){toast('Email 格式不正確');return}
+  var cur={}; EMAIL_INPUTS.forEach(function(e){cur[e.su]=e.inp.value.trim()});
+  if(cur.hasOwnProperty(n)){ EMAIL_INPUTS.filter(function(e){return e.su===n})[0].inp.value=m||cur[n]; }
+  else { cur[n]=m; fillEmails(cur); }
+  $('#em-new-name').value='';$('#em-new-mail').value='';
+  toast('已加入「'+n+'」，記得按「儲存督導 Email」');
 };
 
 /* ====== 單位（部門）Email ====== */
